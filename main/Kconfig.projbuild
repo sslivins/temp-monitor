@@ -1,0 +1,168 @@
+menu "ESP32 POE Temperature Monitor Configuration"
+
+    menu "Network Configuration"
+        config USE_ETHERNET
+            bool "Use Ethernet (POE)"
+            default y
+            help
+                Enable Ethernet/POE connection (recommended for ESP32-POE-ISO)
+
+        config USE_WIFI_FALLBACK
+            bool "Enable WiFi as fallback"
+            default y
+            help
+                Use WiFi if Ethernet is not available
+
+        config WIFI_SSID
+            string "WiFi SSID"
+            default "your_wifi_ssid"
+            depends on USE_WIFI_FALLBACK
+            help
+                WiFi network name for fallback connection
+
+        config WIFI_PASSWORD
+            string "WiFi Password"
+            default "your_wifi_password"
+            depends on USE_WIFI_FALLBACK
+            help
+                WiFi network password
+
+        config MDNS_HOSTNAME
+            string "mDNS Hostname"
+            default "esp-temp-monitor"
+            help
+                Device hostname for mDNS discovery (accessible as hostname.local)
+    endmenu
+
+    menu "MQTT Configuration"
+        config MQTT_BROKER_URI
+            string "MQTT Broker URI"
+            default "mqtt://homeassistant.local:1883"
+            help
+                MQTT broker URI (mqtt:// or mqtts://)
+
+        config MQTT_USERNAME
+            string "MQTT Username"
+            default ""
+            help
+                MQTT broker username (leave empty if not required)
+
+        config MQTT_PASSWORD
+            string "MQTT Password"
+            default ""
+            help
+                MQTT broker password (leave empty if not required)
+
+        config MQTT_BASE_TOPIC
+            string "MQTT Base Topic"
+            default "esp32-poe-temp"
+            help
+                Base topic for MQTT messages
+
+        config HA_DISCOVERY_ENABLED
+            bool "Enable Home Assistant Discovery"
+            default y
+            help
+                Enable automatic Home Assistant MQTT discovery
+
+        config HA_DISCOVERY_PREFIX
+            string "Home Assistant Discovery Prefix"
+            default "homeassistant"
+            depends on HA_DISCOVERY_ENABLED
+            help
+                Home Assistant MQTT discovery prefix
+    endmenu
+
+    menu "Sensor Configuration"
+        config ONEWIRE_GPIO
+            int "1-Wire Data GPIO"
+            default 4
+            range 0 39
+            help
+                GPIO pin connected to 1-Wire data line
+
+        config MAX_SENSORS
+            int "Maximum Number of Sensors"
+            default 20
+            range 1 50
+            help
+                Maximum number of temperature sensors to support
+
+        config SENSOR_READ_INTERVAL_MS
+            int "Sensor Read Interval (ms)"
+            default 10000
+            range 1000 300000
+            help
+                Interval between temperature readings in milliseconds
+
+        config SENSOR_PUBLISH_INTERVAL_MS
+            int "MQTT Publish Interval (ms)"
+            default 30000
+            range 5000 600000
+            help
+                Interval between MQTT publishes in milliseconds
+    endmenu
+
+    menu "OTA Update Configuration"
+        config OTA_ENABLED
+            bool "Enable OTA Updates"
+            default y
+            help
+                Enable over-the-air firmware updates
+
+        config GITHUB_OWNER
+            string "GitHub Repository Owner"
+            default "your-username"
+            depends on OTA_ENABLED
+            help
+                GitHub username or organization
+
+        config GITHUB_REPO
+            string "GitHub Repository Name"
+            default "esp32-poe-temp-monitor"
+            depends on OTA_ENABLED
+            help
+                GitHub repository name
+
+        config OTA_CHECK_INTERVAL_HOURS
+            int "OTA Check Interval (hours)"
+            default 24
+            range 1 168
+            depends on OTA_ENABLED
+            help
+                How often to check for firmware updates
+
+        config OTA_AUTO_UPDATE
+            bool "Auto-install Updates"
+            default n
+            depends on OTA_ENABLED
+            help
+                Automatically install updates when available (otherwise just notify)
+    endmenu
+
+    menu "Web Server Configuration"
+        config WEB_SERVER_PORT
+            int "Web Server Port"
+            default 80
+            range 80 65535
+            help
+                HTTP port for the web interface
+
+        config WEB_AUTH_ENABLED
+            bool "Enable Web Authentication"
+            default n
+            help
+                Require username/password for web interface
+
+        config WEB_AUTH_USERNAME
+            string "Web Username"
+            default "admin"
+            depends on WEB_AUTH_ENABLED
+
+        config WEB_AUTH_PASSWORD
+            string "Web Password"
+            default "admin"
+            depends on WEB_AUTH_ENABLED
+    endmenu
+
+endmenu

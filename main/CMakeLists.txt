@@ -1,0 +1,28 @@
+idf_component_register(
+    SRCS 
+        "main.c"
+        "wifi_manager.c"
+        "ethernet_manager.c"
+        "onewire_temp.c"
+        "mqtt_client_ha.c"
+        "web_server.c"
+        "ota_updater.c"
+        "nvs_storage.c"
+        "sensor_manager.c"
+    INCLUDE_DIRS "."
+    REQUIRES 
+        nvs_flash
+        esp_wifi
+        esp_eth
+        esp_http_server
+        esp_https_ota
+        app_update
+        mqtt
+        json
+        mdns
+        esp_netif
+        esp_event
+        driver
+    EMBED_TXTFILES
+        "certs/github_root_ca.pem"
+)

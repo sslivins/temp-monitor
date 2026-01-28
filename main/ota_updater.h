@@ -1,0 +1,44 @@
+/**
+ * @file ota_updater.h
+ * @brief OTA firmware updates from GitHub Releases
+ */
+
+#ifndef OTA_UPDATER_H
+#define OTA_UPDATER_H
+
+#include "esp_err.h"
+#include <stdbool.h>
+
+/**
+ * @brief Initialize OTA updater
+ */
+esp_err_t ota_updater_init(void);
+
+/**
+ * @brief Check GitHub releases for available update
+ */
+esp_err_t ota_check_for_update(void);
+
+/**
+ * @brief Check if an update is available
+ */
+bool ota_is_update_available(void);
+
+/**
+ * @brief Get latest available version string
+ */
+esp_err_t ota_get_latest_version(char *version, size_t max_len);
+
+/**
+ * @brief Start OTA update process
+ * 
+ * Downloads and installs the latest firmware, then restarts device
+ */
+esp_err_t ota_start_update(void);
+
+/**
+ * @brief Get current firmware version
+ */
+const char* ota_get_current_version(void);
+
+#endif /* OTA_UPDATER_H */
