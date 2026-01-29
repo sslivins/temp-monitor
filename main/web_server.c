@@ -9,13 +9,21 @@
 #include "nvs_storage.h"
 #include "esp_http_server.h"
 #include "esp_log.h"
+#include "esp_system.h"
 #include "cJSON.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include <string.h>
 
 static const char *TAG = "web_server";
 static httpd_handle_t s_server = NULL;
 
 extern const char *APP_VERSION;
+
+/* Forward declarations for reconfiguration */
+extern esp_err_t mqtt_ha_stop(void);
+extern esp_err_t mqtt_ha_init(void);
+extern esp_err_t mqtt_ha_start(void);
 
 /* Embedded HTML page */
 static const char INDEX_HTML[] = R"rawliteral(
@@ -173,6 +181,7 @@ static const char INDEX_HTML[] = R"rawliteral(
         <div class="actions">
             <button class="btn btn-secondary" onclick="rescanSensors()">🔄 Rescan Sensors</button>
             <button class="btn btn-secondary" onclick="checkOTA()">📦 Check for Updates</button>
+            <button class="btn btn-secondary" onclick="location.href='/config'">⚙️ Settings</button>
         </div>
     </div>
 
@@ -293,6 +302,320 @@ static const char INDEX_HTML[] = R"rawliteral(
         
         // Auto-refresh every 5 seconds
         updateInterval = setInterval(fetchSensors, 5000);
+    </script>
+</body>
+</html>
+)rawliteral";
+
+/* Configuration page HTML */
+static const char CONFIG_HTML[] = R"rawliteral(
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP32 Settings</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #fff;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container { max-width: 800px; margin: 0 auto; }
+        h1 { text-align: center; margin-bottom: 10px; font-size: 2em; }
+        .back-link { text-align: center; margin-bottom: 30px; }
+        .back-link a { color: #60a5fa; text-decoration: none; }
+        .back-link a:hover { text-decoration: underline; }
+        .config-section {
+            background: rgba(255,255,255,0.05);
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 20px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .section-title {
+            font-size: 1.3em;
+            margin-bottom: 20px;
+            color: #60a5fa;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            color: #ccc;
+            font-size: 0.9em;
+        }
+        .form-group input {
+            width: 100%;
+            padding: 12px 15px;
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 8px;
+            background: rgba(255,255,255,0.1);
+            color: #fff;
+            font-size: 1em;
+        }
+        .form-group input:focus {
+            outline: none;
+            border-color: #60a5fa;
+        }
+        .form-group input::placeholder { color: #666; }
+        .form-hint {
+            font-size: 0.8em;
+            color: #888;
+            margin-top: 5px;
+        }
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1em;
+            transition: background 0.2s;
+            margin-right: 10px;
+            margin-top: 10px;
+        }
+        .btn-primary { background: #3b82f6; color: white; }
+        .btn-primary:hover { background: #2563eb; }
+        .btn-danger { background: #ef4444; color: white; }
+        .btn-danger:hover { background: #dc2626; }
+        .btn-secondary { background: rgba(255,255,255,0.1); color: white; }
+        .btn-secondary:hover { background: rgba(255,255,255,0.2); }
+        .status-badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 0.8em;
+            margin-left: 10px;
+        }
+        .status-connected { background: #22c55e; }
+        .status-disconnected { background: #ef4444; }
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: #22c55e;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 8px;
+            opacity: 0;
+            transition: opacity 0.3s;
+            z-index: 1000;
+        }
+        .toast.show { opacity: 1; }
+        .toast.error { background: #ef4444; }
+        .current-value {
+            font-size: 0.85em;
+            color: #888;
+            margin-bottom: 8px;
+        }
+        .danger-zone {
+            border-color: #ef4444;
+        }
+        .danger-zone .section-title { color: #ef4444; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>⚙️ Settings</h1>
+        <div class="back-link"><a href="/">← Back to Dashboard</a></div>
+
+        <!-- WiFi Configuration -->
+        <div class="config-section">
+            <div class="section-title">📶 WiFi Configuration</div>
+            <form id="wifi-form">
+                <div class="form-group">
+                    <label for="wifi-ssid">Network Name (SSID)</label>
+                    <div class="current-value" id="wifi-ssid-current">Current: Loading...</div>
+                    <input type="text" id="wifi-ssid" name="ssid" placeholder="Enter WiFi network name" maxlength="31">
+                </div>
+                <div class="form-group">
+                    <label for="wifi-password">Password</label>
+                    <input type="password" id="wifi-password" name="password" placeholder="Enter WiFi password" maxlength="63">
+                    <div class="form-hint">Leave blank to keep current password</div>
+                </div>
+                <button type="submit" class="btn btn-primary">💾 Save WiFi Settings</button>
+            </form>
+        </div>
+
+        <!-- MQTT Configuration -->
+        <div class="config-section">
+            <div class="section-title">
+                🔗 MQTT Configuration
+                <span id="mqtt-status" class="status-badge status-disconnected">Disconnected</span>
+            </div>
+            <form id="mqtt-form">
+                <div class="form-group">
+                    <label for="mqtt-uri">Broker URI</label>
+                    <div class="current-value" id="mqtt-uri-current">Current: Loading...</div>
+                    <input type="text" id="mqtt-uri" name="uri" placeholder="mqtt://192.168.1.100:1883">
+                    <div class="form-hint">Example: mqtt://host:1883 or mqtts://host:8883 for TLS</div>
+                </div>
+                <div class="form-group">
+                    <label for="mqtt-username">Username (optional)</label>
+                    <div class="current-value" id="mqtt-user-current">Current: Loading...</div>
+                    <input type="text" id="mqtt-username" name="username" placeholder="MQTT username">
+                </div>
+                <div class="form-group">
+                    <label for="mqtt-password">Password (optional)</label>
+                    <input type="password" id="mqtt-password" name="password" placeholder="MQTT password">
+                    <div class="form-hint">Leave blank to keep current password</div>
+                </div>
+                <button type="submit" class="btn btn-primary">💾 Save MQTT Settings</button>
+                <button type="button" class="btn btn-secondary" onclick="reconnectMqtt()">🔄 Reconnect</button>
+            </form>
+        </div>
+
+        <!-- System Actions -->
+        <div class="config-section danger-zone">
+            <div class="section-title">⚠️ System</div>
+            <p style="margin-bottom: 15px; color: #ccc;">Device restart is required after changing WiFi settings.</p>
+            <button class="btn btn-secondary" onclick="restartDevice()">🔄 Restart Device</button>
+            <button class="btn btn-danger" onclick="factoryReset()">🗑️ Factory Reset</button>
+        </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+        async function loadConfig() {
+            try {
+                // Load WiFi config
+                const wifiResp = await fetch('/api/config/wifi');
+                const wifi = await wifiResp.json();
+                document.getElementById('wifi-ssid-current').textContent = 'Current: ' + (wifi.ssid || 'Not set');
+                document.getElementById('wifi-ssid').placeholder = wifi.ssid || 'Enter WiFi network name';
+
+                // Load MQTT config
+                const mqttResp = await fetch('/api/config/mqtt');
+                const mqtt = await mqttResp.json();
+                document.getElementById('mqtt-uri-current').textContent = 'Current: ' + (mqtt.uri || 'Not set');
+                document.getElementById('mqtt-user-current').textContent = 'Current: ' + (mqtt.username || 'None');
+                document.getElementById('mqtt-uri').placeholder = mqtt.uri || 'mqtt://host:1883';
+                document.getElementById('mqtt-username').placeholder = mqtt.username || 'Username';
+                
+                // Update MQTT status
+                const statusResp = await fetch('/api/status');
+                const status = await statusResp.json();
+                const mqttBadge = document.getElementById('mqtt-status');
+                mqttBadge.textContent = status.mqtt_connected ? 'Connected' : 'Disconnected';
+                mqttBadge.className = 'status-badge ' + (status.mqtt_connected ? 'status-connected' : 'status-disconnected');
+            } catch (err) {
+                showToast('Failed to load configuration', true);
+            }
+        }
+
+        document.getElementById('wifi-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const ssid = document.getElementById('wifi-ssid').value;
+            const password = document.getElementById('wifi-password').value;
+            
+            if (!ssid) {
+                showToast('Please enter WiFi SSID', true);
+                return;
+            }
+            
+            try {
+                const resp = await fetch('/api/config/wifi', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ssid, password })
+                });
+                if (resp.ok) {
+                    showToast('WiFi settings saved. Restart to apply.');
+                    loadConfig();
+                } else {
+                    showToast('Failed to save WiFi settings', true);
+                }
+            } catch (err) {
+                showToast('Error saving WiFi settings', true);
+            }
+        });
+
+        document.getElementById('mqtt-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const uri = document.getElementById('mqtt-uri').value;
+            const username = document.getElementById('mqtt-username').value;
+            const password = document.getElementById('mqtt-password').value;
+            
+            if (!uri) {
+                showToast('Please enter MQTT broker URI', true);
+                return;
+            }
+            
+            try {
+                const resp = await fetch('/api/config/mqtt', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ uri, username, password })
+                });
+                if (resp.ok) {
+                    showToast('MQTT settings saved');
+                    loadConfig();
+                } else {
+                    showToast('Failed to save MQTT settings', true);
+                }
+            } catch (err) {
+                showToast('Error saving MQTT settings', true);
+            }
+        });
+
+        async function reconnectMqtt() {
+            try {
+                showToast('Reconnecting MQTT...');
+                const resp = await fetch('/api/mqtt/reconnect', { method: 'POST' });
+                if (resp.ok) {
+                    showToast('MQTT reconnecting...');
+                    setTimeout(loadConfig, 3000);
+                } else {
+                    showToast('Failed to reconnect', true);
+                }
+            } catch (err) {
+                showToast('Error reconnecting MQTT', true);
+            }
+        }
+
+        async function restartDevice() {
+            if (!confirm('Are you sure you want to restart the device?')) return;
+            try {
+                await fetch('/api/system/restart', { method: 'POST' });
+                showToast('Device restarting...');
+            } catch (err) {
+                showToast('Restart command sent');
+            }
+        }
+
+        async function factoryReset() {
+            if (!confirm('⚠️ This will erase ALL settings including sensor names!\n\nAre you sure?')) return;
+            if (!confirm('Last chance! This cannot be undone. Continue?')) return;
+            try {
+                const resp = await fetch('/api/system/factory-reset', { method: 'POST' });
+                if (resp.ok) {
+                    showToast('Factory reset complete. Restarting...');
+                } else {
+                    showToast('Factory reset failed', true);
+                }
+            } catch (err) {
+                showToast('Factory reset initiated');
+            }
+        }
+
+        function showToast(message, isError = false) {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.className = 'toast show' + (isError ? ' error' : '');
+            setTimeout(() => toast.className = 'toast', 3000);
+        }
+
+        // Load config on page load
+        loadConfig();
     </script>
 </body>
 </html>
@@ -532,6 +855,291 @@ static esp_err_t api_ota_update_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
+/**
+ * @brief Handler for GET /config
+ */
+static esp_err_t config_get_handler(httpd_req_t *req)
+{
+    httpd_resp_set_type(req, "text/html");
+    httpd_resp_send(req, CONFIG_HTML, strlen(CONFIG_HTML));
+    return ESP_OK;
+}
+
+/**
+ * @brief Handler for GET /api/config/wifi
+ */
+static esp_err_t api_config_wifi_get_handler(httpd_req_t *req)
+{
+    char ssid[32] = {0};
+    char password[64] = {0};
+    
+    /* Try NVS first, then menuconfig defaults */
+    esp_err_t err = nvs_storage_load_wifi_config(ssid, sizeof(ssid), 
+                                                  password, sizeof(password));
+    if (err != ESP_OK || strlen(ssid) == 0) {
+#ifdef CONFIG_WIFI_SSID
+        strncpy(ssid, CONFIG_WIFI_SSID, sizeof(ssid) - 1);
+#endif
+    }
+    
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "ssid", ssid);
+    /* Don't send password for security */
+    
+    char *json = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, json, strlen(json));
+    free(json);
+    
+    return ESP_OK;
+}
+
+/**
+ * @brief Handler for POST /api/config/wifi
+ */
+static esp_err_t api_config_wifi_post_handler(httpd_req_t *req)
+{
+    char content[256];
+    int ret = httpd_req_recv(req, content, sizeof(content) - 1);
+    if (ret <= 0) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "No body");
+        return ESP_FAIL;
+    }
+    content[ret] = '\0';
+    
+    cJSON *root = cJSON_Parse(content);
+    if (root == NULL) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+        return ESP_FAIL;
+    }
+    
+    cJSON *ssid_item = cJSON_GetObjectItem(root, "ssid");
+    cJSON *password_item = cJSON_GetObjectItem(root, "password");
+    
+    if (!cJSON_IsString(ssid_item) || strlen(ssid_item->valuestring) == 0) {
+        cJSON_Delete(root);
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing ssid");
+        return ESP_FAIL;
+    }
+    
+    /* If password not provided, load existing one */
+    char password[64] = {0};
+    if (cJSON_IsString(password_item) && strlen(password_item->valuestring) > 0) {
+        strncpy(password, password_item->valuestring, sizeof(password) - 1);
+    } else {
+        char existing_ssid[32];
+        nvs_storage_load_wifi_config(existing_ssid, sizeof(existing_ssid),
+                                      password, sizeof(password));
+    }
+    
+    esp_err_t err = nvs_storage_save_wifi_config(ssid_item->valuestring, password);
+    cJSON_Delete(root);
+    
+    cJSON *response = cJSON_CreateObject();
+    cJSON_AddBoolToObject(response, "success", err == ESP_OK);
+    if (err == ESP_OK) {
+        cJSON_AddStringToObject(response, "message", "WiFi config saved. Restart to apply.");
+    }
+    
+    char *json = cJSON_PrintUnformatted(response);
+    cJSON_Delete(response);
+    
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, json, strlen(json));
+    free(json);
+    
+    return ESP_OK;
+}
+
+/**
+ * @brief Handler for GET /api/config/mqtt
+ */
+static esp_err_t api_config_mqtt_get_handler(httpd_req_t *req)
+{
+    char uri[128] = {0};
+    char username[64] = {0};
+    char password[64] = {0};
+    
+    esp_err_t err = nvs_storage_load_mqtt_config(uri, sizeof(uri),
+                                                  username, sizeof(username),
+                                                  password, sizeof(password));
+    if (err != ESP_OK || strlen(uri) == 0) {
+#ifdef CONFIG_MQTT_BROKER_URI
+        strncpy(uri, CONFIG_MQTT_BROKER_URI, sizeof(uri) - 1);
+#endif
+#ifdef CONFIG_MQTT_USERNAME
+        strncpy(username, CONFIG_MQTT_USERNAME, sizeof(username) - 1);
+#endif
+    }
+    
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "uri", uri);
+    cJSON_AddStringToObject(root, "username", username);
+    /* Don't send password for security */
+    
+    char *json = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, json, strlen(json));
+    free(json);
+    
+    return ESP_OK;
+}
+
+/**
+ * @brief Handler for POST /api/config/mqtt
+ */
+static esp_err_t api_config_mqtt_post_handler(httpd_req_t *req)
+{
+    char content[384];
+    int ret = httpd_req_recv(req, content, sizeof(content) - 1);
+    if (ret <= 0) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "No body");
+        return ESP_FAIL;
+    }
+    content[ret] = '\0';
+    
+    cJSON *root = cJSON_Parse(content);
+    if (root == NULL) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+        return ESP_FAIL;
+    }
+    
+    cJSON *uri_item = cJSON_GetObjectItem(root, "uri");
+    cJSON *username_item = cJSON_GetObjectItem(root, "username");
+    cJSON *password_item = cJSON_GetObjectItem(root, "password");
+    
+    if (!cJSON_IsString(uri_item) || strlen(uri_item->valuestring) == 0) {
+        cJSON_Delete(root);
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing uri");
+        return ESP_FAIL;
+    }
+    
+    const char *username = "";
+    const char *password = "";
+    char existing_password[64] = {0};
+    
+    if (cJSON_IsString(username_item)) {
+        username = username_item->valuestring;
+    }
+    
+    if (cJSON_IsString(password_item) && strlen(password_item->valuestring) > 0) {
+        password = password_item->valuestring;
+    } else {
+        /* Load existing password */
+        char existing_uri[128], existing_user[64];
+        nvs_storage_load_mqtt_config(existing_uri, sizeof(existing_uri),
+                                      existing_user, sizeof(existing_user),
+                                      existing_password, sizeof(existing_password));
+        password = existing_password;
+    }
+    
+    esp_err_t err = nvs_storage_save_mqtt_config(uri_item->valuestring, username, password);
+    cJSON_Delete(root);
+    
+    cJSON *response = cJSON_CreateObject();
+    cJSON_AddBoolToObject(response, "success", err == ESP_OK);
+    if (err == ESP_OK) {
+        cJSON_AddStringToObject(response, "message", "MQTT config saved");
+    }
+    
+    char *json = cJSON_PrintUnformatted(response);
+    cJSON_Delete(response);
+    
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, json, strlen(json));
+    free(json);
+    
+    return ESP_OK;
+}
+
+/**
+ * @brief Handler for POST /api/mqtt/reconnect
+ */
+static esp_err_t api_mqtt_reconnect_handler(httpd_req_t *req)
+{
+    ESP_LOGI(TAG, "MQTT reconnect requested");
+    
+    /* Stop and reinitialize MQTT with new settings */
+    mqtt_ha_stop();
+    mqtt_ha_init();
+    mqtt_ha_start();
+    
+    cJSON *response = cJSON_CreateObject();
+    cJSON_AddBoolToObject(response, "success", true);
+    cJSON_AddStringToObject(response, "message", "MQTT reconnecting");
+    
+    char *json = cJSON_PrintUnformatted(response);
+    cJSON_Delete(response);
+    
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, json, strlen(json));
+    free(json);
+    
+    return ESP_OK;
+}
+
+/**
+ * @brief Handler for POST /api/system/restart
+ */
+static esp_err_t api_system_restart_handler(httpd_req_t *req)
+{
+    ESP_LOGW(TAG, "System restart requested");
+    
+    cJSON *response = cJSON_CreateObject();
+    cJSON_AddBoolToObject(response, "success", true);
+    cJSON_AddStringToObject(response, "message", "Restarting...");
+    
+    char *json = cJSON_PrintUnformatted(response);
+    cJSON_Delete(response);
+    
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, json, strlen(json));
+    free(json);
+    
+    /* Delay restart to allow response to be sent */
+    vTaskDelay(pdMS_TO_TICKS(500));
+    esp_restart();
+    
+    return ESP_OK;
+}
+
+/**
+ * @brief Handler for POST /api/system/factory-reset
+ */
+static esp_err_t api_system_factory_reset_handler(httpd_req_t *req)
+{
+    ESP_LOGW(TAG, "Factory reset requested");
+    
+    esp_err_t err = nvs_storage_factory_reset();
+    
+    cJSON *response = cJSON_CreateObject();
+    cJSON_AddBoolToObject(response, "success", err == ESP_OK);
+    if (err == ESP_OK) {
+        cJSON_AddStringToObject(response, "message", "Factory reset complete. Restarting...");
+    } else {
+        cJSON_AddStringToObject(response, "error", "Factory reset failed");
+    }
+    
+    char *json = cJSON_PrintUnformatted(response);
+    cJSON_Delete(response);
+    
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, json, strlen(json));
+    free(json);
+    
+    if (err == ESP_OK) {
+        /* Delay restart to allow response to be sent */
+        vTaskDelay(pdMS_TO_TICKS(500));
+        esp_restart();
+    }
+    
+    return ESP_OK;
+}
+
 esp_err_t web_server_start(void)
 {
     ESP_LOGI(TAG, "Starting web server on port %d", CONFIG_WEB_SERVER_PORT);
@@ -539,7 +1147,7 @@ esp_err_t web_server_start(void)
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = CONFIG_WEB_SERVER_PORT;
     config.uri_match_fn = httpd_uri_match_wildcard;
-    config.max_uri_handlers = 10;
+    config.max_uri_handlers = 20;  /* Increased for config endpoints */
 
     esp_err_t err = httpd_start(&s_server, &config);
     if (err != ESP_OK) {
@@ -596,6 +1204,66 @@ esp_err_t web_server_start(void)
         .handler = api_ota_update_handler,
     };
     httpd_register_uri_handler(s_server, &ota_update_uri);
+
+    /* Configuration page */
+    httpd_uri_t config_uri = {
+        .uri = "/config",
+        .method = HTTP_GET,
+        .handler = config_get_handler,
+    };
+    httpd_register_uri_handler(s_server, &config_uri);
+
+    /* WiFi config endpoints */
+    httpd_uri_t wifi_config_get_uri = {
+        .uri = "/api/config/wifi",
+        .method = HTTP_GET,
+        .handler = api_config_wifi_get_handler,
+    };
+    httpd_register_uri_handler(s_server, &wifi_config_get_uri);
+
+    httpd_uri_t wifi_config_post_uri = {
+        .uri = "/api/config/wifi",
+        .method = HTTP_POST,
+        .handler = api_config_wifi_post_handler,
+    };
+    httpd_register_uri_handler(s_server, &wifi_config_post_uri);
+
+    /* MQTT config endpoints */
+    httpd_uri_t mqtt_config_get_uri = {
+        .uri = "/api/config/mqtt",
+        .method = HTTP_GET,
+        .handler = api_config_mqtt_get_handler,
+    };
+    httpd_register_uri_handler(s_server, &mqtt_config_get_uri);
+
+    httpd_uri_t mqtt_config_post_uri = {
+        .uri = "/api/config/mqtt",
+        .method = HTTP_POST,
+        .handler = api_config_mqtt_post_handler,
+    };
+    httpd_register_uri_handler(s_server, &mqtt_config_post_uri);
+
+    httpd_uri_t mqtt_reconnect_uri = {
+        .uri = "/api/mqtt/reconnect",
+        .method = HTTP_POST,
+        .handler = api_mqtt_reconnect_handler,
+    };
+    httpd_register_uri_handler(s_server, &mqtt_reconnect_uri);
+
+    /* System endpoints */
+    httpd_uri_t system_restart_uri = {
+        .uri = "/api/system/restart",
+        .method = HTTP_POST,
+        .handler = api_system_restart_handler,
+    };
+    httpd_register_uri_handler(s_server, &system_restart_uri);
+
+    httpd_uri_t factory_reset_uri = {
+        .uri = "/api/system/factory-reset",
+        .method = HTTP_POST,
+        .handler = api_system_factory_reset_handler,
+    };
+    httpd_register_uri_handler(s_server, &factory_reset_uri);
 
     ESP_LOGI(TAG, "Web server started");
     return ESP_OK;
