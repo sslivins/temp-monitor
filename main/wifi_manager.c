@@ -18,6 +18,7 @@ static const char *TAG = "wifi_manager";
 
 static esp_netif_t *s_wifi_netif = NULL;
 static bool s_connected = false;
+static bool s_scanning = false;  /* Flag to prevent auto-connect during scan */
 static char s_ip_addr[16] = {0};
 static int s_retry_num = 0;
 static EventGroupHandle_t s_wifi_event_group;
@@ -29,17 +30,19 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
                                int32_t event_id, void *event_data)
 {
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
-        esp_wifi_connect();
+        if (!s_scanning) {
+            esp_wifi_connect();
+        }
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
-        if (s_retry_num < WIFI_MAXIMUM_RETRY) {
+        if (!s_scanning && s_retry_num < WIFI_MAXIMUM_RETRY) {
             esp_wifi_connect();
             s_retry_num++;
             ESP_LOGI(TAG, "Retry to connect to the AP (%d/%d)", s_retry_num, WIFI_MAXIMUM_RETRY);
-        } else {
+        } else if (!s_scanning) {
             xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
+            ESP_LOGI(TAG, "Connect to the AP fail");
         }
         s_connected = false;
-        ESP_LOGI(TAG, "Connect to the AP fail");
     } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t *event = (ip_event_got_ip_t *)event_data;
         snprintf(s_ip_addr, sizeof(s_ip_addr), IPSTR, IP2STR(&event->ip_info.ip));
@@ -143,6 +146,28 @@ esp_err_t wifi_manager_scan(wifi_ap_record_t *ap_records, uint16_t max_records, 
 {
     ESP_LOGI(TAG, "Starting WiFi scan...");
     
+    /* Set scanning flag to prevent auto-connect in event handler */
+    s_scanning = true;
+    
+    /* Check if WiFi is started, if not start it temporarily */
+    wifi_mode_t mode;
+    bool was_stopped = false;
+    esp_err_t err = esp_wifi_get_mode(&mode);
+    if (err == ESP_ERR_WIFI_NOT_INIT) {
+        ESP_LOGE(TAG, "WiFi not initialized");
+        s_scanning = false;
+        return err;
+    }
+    
+    /* Try to start WiFi if not running (needed for scan) */
+    err = esp_wifi_start();
+    if (err == ESP_OK) {
+        was_stopped = true;
+        ESP_LOGI(TAG, "WiFi started temporarily for scan");
+    }
+    
+    vTaskDelay(pdMS_TO_TICKS(100)); /* Brief delay for WiFi to stabilize */
+    
     /* Configure scan */
     wifi_scan_config_t scan_config = {
         .ssid = NULL,
@@ -155,9 +180,13 @@ esp_err_t wifi_manager_scan(wifi_ap_record_t *ap_records, uint16_t max_records, 
     };
     
     /* Start blocking scan */
-    esp_err_t err = esp_wifi_scan_start(&scan_config, true);
+    err = esp_wifi_scan_start(&scan_config, true);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "WiFi scan failed to start: %s", esp_err_to_name(err));
+        if (was_stopped) {
+            esp_wifi_stop();
+        }
+        s_scanning = false;
         return err;
     }
     
@@ -173,9 +202,20 @@ esp_err_t wifi_manager_scan(wifi_ap_record_t *ap_records, uint16_t max_records, 
     err = esp_wifi_scan_get_ap_records(&ap_count, ap_records);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to get scan results: %s", esp_err_to_name(err));
+        if (was_stopped) {
+            esp_wifi_stop();
+        }
+        s_scanning = false;
         return err;
     }
     
+    /* Stop WiFi if we started it just for the scan */
+    if (was_stopped) {
+        esp_wifi_stop();
+        ESP_LOGI(TAG, "WiFi stopped after scan");
+    }
+    
+    s_scanning = false;
     *found_count = ap_count;
     return ESP_OK;
 }
