@@ -34,11 +34,15 @@ idf_component_register(
         "ethernet_manager.c"
         "onewire_temp.c"
         "mqtt_client_ha.c"
+        "mqtt_utils.c"
+        "config_utils.c"
+        "nvs_utils.c"
         "web_server.c"
         "ota_updater.c"
         "nvs_storage.c"
         "sensor_manager.c"
         "log_buffer.c"
+        "version_utils.c"
     INCLUDE_DIRS "."
     REQUIRES 
         nvs_flash
