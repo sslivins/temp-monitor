@@ -15,8 +15,14 @@ add_executable(test_runner
     test_runner.c
     test_version_compare.c
     test_address_utils.c
+    test_mqtt_utils.c
+    test_config_utils.c
+    test_nvs_utils.c
     # Modules under test
     ../main/version_utils.c
+    ../main/mqtt_utils.c
+    ../main/config_utils.c
+    ../main/nvs_utils.c
 )
 
 target_include_directories(test_runner PRIVATE
