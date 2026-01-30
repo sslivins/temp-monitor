@@ -1,17 +1,19 @@
 # ESP32-POE Temperature Monitor
 
-A multi-sensor temperature monitoring system for ESP32-POE boards with Home Assistant integration via MQTT auto-discovery.
+A multi-sensor temperature monitoring system for ESP32-POE boards with Home Assistant integration via MQTT auto-discovery. **Supports up to 20 DS18B20 sensors on a single 1-Wire bus** - perfect for monitoring multiple zones, equipment, or environments from one device.
 
 ## Features
 
-- **Multiple DS18B20 Sensors** - Support for multiple 1-Wire temperature sensors on a single bus
+- **Up to 20 DS18B20 Sensors** - Monitor multiple temperature points from a single device on one 1-Wire bus
 - **Home Assistant Integration** - MQTT auto-discovery for seamless integration
 - **Web Interface** - Configuration and monitoring via built-in web server
+- **Sensor Identification** - Change detection highlighting helps identify which physical sensor is which
+- **Custom Sensor Names** - Assign friendly names to sensors via web UI (persisted in NVS)
 - **OTA Updates** - Over-the-air firmware updates from GitHub releases or manual upload
 - **Ethernet & WiFi** - Primary Ethernet with WiFi fallback
 - **mDNS** - Access via `temp-monitor.local` (auto-increments on collision: temp-monitor-2.local, etc.)
 - **Service Discovery** - Discoverable via `_tempmon._tcp` and `_http._tcp` services
-- **Sensor Naming** - Assign friendly names to sensors via web UI
+- **Web-based Logs** - View system logs without serial connection
 
 ## Hardware Requirements
 
