@@ -561,21 +561,28 @@
             
             /* Start waiting for reboot immediately - waitForReboot() handles detecting 
                when the device actually goes offline (after OTA download completes) */
-            waitForReboot();
+            waitForReboot(startPercent);
         }
 
-        async function waitForReboot() {
+        async function waitForReboot(startPercent = 0) {
             const updateStatus = document.getElementById('update-status');
+            const progressFill = document.getElementById('progress-fill');
             const maxOfflineAttempts = 90; /* Wait up to 3 minutes for device to go offline (OTA download can be slow) */
             const maxOnlineAttempts = 60;  /* Wait up to 2 minutes for device to come back */
             
-            /* Phase 1: Wait for device to go OFFLINE (confirms reboot started) */
-            updateStatus.textContent = 'Waiting for update to complete...';
+            /* Phase 1: Wait for device to go OFFLINE (confirms reboot started) 
+               Progress: startPercent -> 80% */
             let offlineAttempts = 0;
             let deviceWentOffline = false;
             
             while (offlineAttempts < maxOfflineAttempts && !deviceWentOffline) {
                 offlineAttempts++;
+                
+                /* Update progress bar: scale from startPercent to 80% based on attempts */
+                const phase1Progress = startPercent + ((80 - startPercent) * offlineAttempts / maxOfflineAttempts);
+                progressFill.style.width = phase1Progress + '%';
+                progressFill.textContent = Math.round(phase1Progress) + '%';
+                
                 try {
                     const response = await fetch('/api/status', { 
                         method: 'GET', 
@@ -591,7 +598,7 @@
                 }
                 
                 if (!deviceWentOffline) {
-                    updateStatus.textContent = 'Installing update... (' + offlineAttempts + '/' + maxOfflineAttempts + ')';
+                    updateStatus.textContent = 'Downloading and installing firmware...';
                     await new Promise(resolve => setTimeout(resolve, 2000));
                 }
             }
@@ -603,12 +610,23 @@
                 return;
             }
             
-            /* Phase 2: Wait for device to come back ONLINE */
+            /* Device went offline - jump to 85% */
+            progressFill.style.width = '85%';
+            progressFill.textContent = '85%';
             updateStatus.textContent = 'Device restarting...';
+            
+            /* Phase 2: Wait for device to come back ONLINE
+               Progress: 85% -> 100% */
             let onlineAttempts = 0;
             
             const checkInterval = setInterval(async () => {
                 onlineAttempts++;
+                
+                /* Update progress bar: scale from 85% to 99% */
+                const phase2Progress = 85 + (14 * onlineAttempts / maxOnlineAttempts);
+                progressFill.style.width = phase2Progress + '%';
+                progressFill.textContent = Math.round(phase2Progress) + '%';
+                
                 try {
                     const response = await fetch('/api/status', { 
                         method: 'GET', 
@@ -617,14 +635,16 @@
                     });
                     if (response.ok) {
                         clearInterval(checkInterval);
-                        updateStatus.textContent = '✓ Device is back online! Refreshing...';
+                        progressFill.style.width = '100%';
+                        progressFill.textContent = '100%';
+                        updateStatus.textContent = '✓ Update complete! Refreshing...';
                         updateStatus.className = 'update-status available';
                         /* Force hard reload bypassing cache */
                         setTimeout(() => location.href = location.href.split('?')[0] + '?t=' + Date.now(), 1000);
                         return;
                     }
                 } catch (e) { /* Device still rebooting */ }
-                updateStatus.textContent = 'Waiting for device... (' + onlineAttempts + '/' + maxOnlineAttempts + ')';
+                updateStatus.textContent = 'Waiting for device to restart...';
                 if (onlineAttempts >= maxOnlineAttempts) {
                     clearInterval(checkInterval);
                     updateStatus.textContent = 'Device may have restarted. Please refresh manually.';
