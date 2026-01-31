@@ -570,27 +570,44 @@
             const maxOfflineAttempts = 90; /* Wait up to 3 minutes for device to go offline (OTA download can be slow) */
             const maxOnlineAttempts = 60;  /* Wait up to 2 minutes for device to come back */
             
-            /* Phase 1: Wait for device to go OFFLINE (confirms reboot started) 
-               Progress: startPercent -> 80% */
+            /* Phase 1: Wait for device to go OFFLINE (confirms reboot started)
+               Uses real download progress from device when available */
             let offlineAttempts = 0;
             let deviceWentOffline = false;
             
             while (offlineAttempts < maxOfflineAttempts && !deviceWentOffline) {
                 offlineAttempts++;
                 
-                /* Update progress bar: scale from startPercent to 80% based on attempts */
-                const phase1Progress = startPercent + ((80 - startPercent) * offlineAttempts / maxOfflineAttempts);
-                progressFill.style.width = phase1Progress + '%';
-                progressFill.textContent = Math.round(phase1Progress) + '%';
-                
                 try {
-                    const response = await fetch('/api/status', { 
+                    const response = await fetch('/api/ota/status', { 
                         method: 'GET', 
                         signal: AbortSignal.timeout(2000),
                         cache: 'no-store'
                     });
                     if (!response.ok) {
                         deviceWentOffline = true;
+                    } else {
+                        const status = await response.json();
+                        
+                        /* Use real download progress if available */
+                        if (status.downloading && status.download_progress > 0) {
+                            /* Scale download progress (0-100) to visual progress (startPercent-85%) */
+                            const downloadPct = status.download_progress;
+                            const visualProgress = startPercent + ((85 - startPercent) * downloadPct / 100);
+                            progressFill.style.width = visualProgress + '%';
+                            progressFill.textContent = Math.round(visualProgress) + '%';
+                            
+                            /* Show download stats */
+                            const receivedKB = Math.round(status.download_received / 1024);
+                            const totalKB = Math.round(status.download_total / 1024);
+                            if (totalKB > 0) {
+                                updateStatus.textContent = 'Downloading firmware... ' + receivedKB + ' / ' + totalKB + ' KB (' + downloadPct + '%)';
+                            } else {
+                                updateStatus.textContent = 'Downloading firmware... ' + downloadPct + '%';
+                            }
+                        } else {
+                            updateStatus.textContent = 'Starting firmware download...';
+                        }
                     }
                 } catch (e) {
                     /* Network error = device is offline */
@@ -598,8 +615,7 @@
                 }
                 
                 if (!deviceWentOffline) {
-                    updateStatus.textContent = 'Downloading and installing firmware...';
-                    await new Promise(resolve => setTimeout(resolve, 2000));
+                    await new Promise(resolve => setTimeout(resolve, 1000));
                 }
             }
             

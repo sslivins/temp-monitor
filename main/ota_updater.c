@@ -43,6 +43,19 @@ typedef enum {
 static volatile ota_check_state_t s_check_state = OTA_CHECK_IDLE;
 static TaskHandle_t s_check_task_handle = NULL;
 
+/* OTA download progress tracking */
+typedef enum {
+    OTA_UPDATE_IDLE,
+    OTA_UPDATE_DOWNLOADING,
+    OTA_UPDATE_COMPLETE,
+    OTA_UPDATE_FAILED
+} ota_update_state_t;
+
+static volatile ota_update_state_t s_update_state = OTA_UPDATE_IDLE;
+static volatile int s_download_progress = 0;  /* 0-100 */
+static volatile int s_download_total = 0;
+static volatile int s_download_received = 0;
+
 /**
  * @brief HTTP event handler for GitHub API request
  * 
@@ -329,11 +342,16 @@ esp_err_t ota_get_latest_version(char *version, size_t max_len)
 }
 
 /**
- * @brief OTA update task
+ * @brief OTA update task with progress tracking
  */
 static void ota_update_task(void *pvParameters)
 {
     ESP_LOGI(TAG, "Starting OTA update from: %s", s_download_url);
+    
+    s_update_state = OTA_UPDATE_DOWNLOADING;
+    s_download_progress = 0;
+    s_download_total = 0;
+    s_download_received = 0;
     
     esp_http_client_config_t config = {
         .url = s_download_url,
@@ -350,14 +368,65 @@ static void ota_update_task(void *pvParameters)
         .max_http_request_size = 64 * 1024,
     };
     
-    esp_err_t err = esp_https_ota(&ota_config);
+    esp_https_ota_handle_t ota_handle = NULL;
+    esp_err_t err = esp_https_ota_begin(&ota_config, &ota_handle);
+    
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "OTA begin failed: %s", esp_err_to_name(err));
+        s_update_state = OTA_UPDATE_FAILED;
+        vTaskDelete(NULL);
+        return;
+    }
+    
+    /* Get total image size */
+    s_download_total = esp_https_ota_get_image_size(ota_handle);
+    ESP_LOGI(TAG, "Image size: %d bytes", s_download_total);
+    
+    /* Download and flash in chunks */
+    while (1) {
+        err = esp_https_ota_perform(ota_handle);
+        if (err != ESP_ERR_HTTPS_OTA_IN_PROGRESS) {
+            break;
+        }
+        
+        /* Update progress */
+        s_download_received = esp_https_ota_get_image_len_read(ota_handle);
+        if (s_download_total > 0) {
+            s_download_progress = (s_download_received * 100) / s_download_total;
+        }
+        
+        ESP_LOGD(TAG, "Download progress: %d/%d (%d%%)", 
+                 s_download_received, s_download_total, s_download_progress);
+    }
+    
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "OTA perform failed: %s", esp_err_to_name(err));
+        esp_https_ota_abort(ota_handle);
+        s_update_state = OTA_UPDATE_FAILED;
+        vTaskDelete(NULL);
+        return;
+    }
+    
+    /* Verify and finish */
+    if (esp_https_ota_is_complete_data_received(ota_handle) != true) {
+        ESP_LOGE(TAG, "Complete data was not received");
+        esp_https_ota_abort(ota_handle);
+        s_update_state = OTA_UPDATE_FAILED;
+        vTaskDelete(NULL);
+        return;
+    }
+    
+    s_download_progress = 100;
+    err = esp_https_ota_finish(ota_handle);
     
     if (err == ESP_OK) {
         ESP_LOGI(TAG, "OTA update successful, restarting...");
+        s_update_state = OTA_UPDATE_COMPLETE;
         vTaskDelay(pdMS_TO_TICKS(1000));
         esp_restart();
     } else {
-        ESP_LOGE(TAG, "OTA update failed: %s", esp_err_to_name(err));
+        ESP_LOGE(TAG, "OTA finish failed: %s", esp_err_to_name(err));
+        s_update_state = OTA_UPDATE_FAILED;
     }
     
     vTaskDelete(NULL);
@@ -370,6 +439,12 @@ esp_err_t ota_start_update(void)
         return ESP_ERR_INVALID_STATE;
     }
     
+    /* Reset progress state */
+    s_update_state = OTA_UPDATE_IDLE;
+    s_download_progress = 0;
+    s_download_total = 0;
+    s_download_received = 0;
+    
     /* Create OTA task with high priority */
     xTaskCreate(ota_update_task, "ota_update", 8192, NULL, 10, NULL);
     
@@ -379,4 +454,20 @@ esp_err_t ota_start_update(void)
 const char* ota_get_current_version(void)
 {
     return APP_VERSION;
+}
+
+bool ota_update_in_progress(void)
+{
+    return s_update_state == OTA_UPDATE_DOWNLOADING;
+}
+
+int ota_get_download_progress(void)
+{
+    return s_download_progress;
+}
+
+void ota_get_download_stats(int *received, int *total)
+{
+    if (received) *received = s_download_received;
+    if (total) *total = s_download_total;
 }
