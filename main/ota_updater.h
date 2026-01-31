@@ -55,6 +55,23 @@ esp_err_t ota_get_latest_version(char *version, size_t max_len);
 esp_err_t ota_start_update(void);
 
 /**
+ * @brief Check if OTA update/download is in progress
+ */
+bool ota_update_in_progress(void);
+
+/**
+ * @brief Get current download progress (0-100)
+ */
+int ota_get_download_progress(void);
+
+/**
+ * @brief Get download statistics
+ * @param received Bytes received so far (can be NULL)
+ * @param total Total bytes to download (can be NULL)
+ */
+void ota_get_download_stats(int *received, int *total);
+
+/**
  * @brief Get current firmware version
  */
 const char* ota_get_current_version(void);

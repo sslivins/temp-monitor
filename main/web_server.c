@@ -260,7 +260,7 @@ static esp_err_t api_ota_check_handler(httpd_req_t *req)
 }
 
 /**
- * @brief Handler for GET /api/ota/status - poll for check result
+ * @brief Handler for GET /api/ota/status - poll for check result and download progress
  */
 static esp_err_t api_ota_status_handler(httpd_req_t *req)
 {
@@ -273,19 +273,33 @@ static esp_err_t api_ota_status_handler(httpd_req_t *req)
     char latest_version[32] = {0};
     ota_get_latest_version(latest_version, sizeof(latest_version));
     
-    ESP_LOGI(TAG, "OTA status: checking=%d, result=%d, update=%d, version=%s",
-             checking, result, update_available, latest_version);
+    /* Add download progress info */
+    bool downloading = ota_update_in_progress();
+    int download_progress = ota_get_download_progress();
+    int received = 0, total = 0;
+    ota_get_download_stats(&received, &total);
+    
+    ESP_LOGI(TAG, "OTA status: checking=%d, result=%d, update=%d, version=%s, downloading=%d, progress=%d%%",
+             checking, result, update_available, latest_version, downloading, download_progress);
     
     cJSON_AddBoolToObject(root, "checking", checking);
     cJSON_AddNumberToObject(root, "result", result);  /* 0=in progress, 1=complete, -1=failed */
     cJSON_AddBoolToObject(root, "update_available", update_available);
     cJSON_AddStringToObject(root, "current_version", APP_VERSION);
     cJSON_AddStringToObject(root, "latest_version", latest_version);
+    
+    /* Download progress fields */
+    cJSON_AddBoolToObject(root, "downloading", downloading);
+    cJSON_AddNumberToObject(root, "download_progress", download_progress);
+    cJSON_AddNumberToObject(root, "download_received", received);
+    cJSON_AddNumberToObject(root, "download_total", total);
 #else
     cJSON_AddBoolToObject(root, "checking", false);
     cJSON_AddIntToObject(root, "result", -1);
     cJSON_AddBoolToObject(root, "update_available", false);
     cJSON_AddStringToObject(root, "current_version", APP_VERSION);
+    cJSON_AddBoolToObject(root, "downloading", false);
+    cJSON_AddNumberToObject(root, "download_progress", 0);
     cJSON_AddStringToObject(root, "error", "OTA disabled");
 #endif
 
