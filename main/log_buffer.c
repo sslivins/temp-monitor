@@ -34,7 +34,7 @@ static int log_vprintf(const char *fmt, va_list args)
     
     /* Then write to ring buffer - use static buffer to avoid stack overflow */
     if (s_buffer && s_mutex) {
-        static char temp[128];  /* Static to avoid stack issues in small-stack tasks */
+        static char temp[256];  /* Static to avoid stack issues in small-stack tasks */
         static SemaphoreHandle_t print_mutex = NULL;
         
         /* Create print mutex on first use */
@@ -52,6 +52,14 @@ static int log_vprintf(const char *fmt, va_list args)
         if (len > 0) {
             if (len >= sizeof(temp)) {
                 len = sizeof(temp) - 1;
+            }
+            
+            /* Filter out noisy HTTP/network debug logs that flood the buffer */
+            if (strstr(temp, "httpd_parse:") || strstr(temp, "httpd_txrx:") ||
+                strstr(temp, "httpd_uri:") || strstr(temp, "httpd_sess:") ||
+                strstr(temp, "esp.emac: receive") || strstr(temp, "esp_netif_lwip:")) {
+                xSemaphoreGive(print_mutex);
+                return ret;
             }
             
             if (xSemaphoreTake(s_mutex, pdMS_TO_TICKS(5)) == pdTRUE) {

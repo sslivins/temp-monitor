@@ -197,6 +197,15 @@ void app_main(void)
     esp_log_level_set("esp_https_ota", ESP_LOG_WARN);
     esp_log_level_set("HTTP_CLIENT", ESP_LOG_WARN);
     esp_log_level_set("esp-x509-crt-bundle", ESP_LOG_WARN);
+    /* HTTP server internals - extremely verbose, rarely useful */
+    esp_log_level_set("httpd_parse", ESP_LOG_WARN);
+    esp_log_level_set("httpd_txrx", ESP_LOG_WARN);
+    esp_log_level_set("httpd_uri", ESP_LOG_WARN);
+    esp_log_level_set("httpd_sess", ESP_LOG_WARN);
+    esp_log_level_set("httpd", ESP_LOG_WARN);
+    /* Ethernet/network spam */
+    esp_log_level_set("esp.emac", ESP_LOG_WARN);
+    esp_log_level_set("event", ESP_LOG_WARN);
     
     ESP_LOGI(TAG, "=================================");
     ESP_LOGI(TAG, "ESP32-POE Temperature Monitor");

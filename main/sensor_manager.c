@@ -7,6 +7,7 @@
 #include "nvs_storage.h"
 #include "mqtt_client_ha.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include <string.h>
 
 static const char *TAG = "sensor_mgr";
@@ -115,7 +116,11 @@ esp_err_t sensor_manager_read_all(void)
     }
 
     /* Read all temperatures */
+    int64_t start = esp_timer_get_time();
     esp_err_t err = onewire_temp_read_all(hw_sensors, s_sensor_count);
+    int64_t elapsed_ms = (esp_timer_get_time() - start) / 1000;
+    
+    ESP_LOGI(TAG, "Read %d sensors in %lld ms", s_sensor_count, elapsed_ms);
     
     /* Copy back results */
     for (int i = 0; i < s_sensor_count; i++) {
