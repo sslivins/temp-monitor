@@ -10,6 +10,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "onewire_bus.h"
+#include "onewire_cmd.h"
 #include "ds18b20.h"
 #include <string.h>
 
@@ -20,8 +21,9 @@ static ds18b20_device_handle_t *s_ds18b20_handles = NULL;
 static int s_device_count = 0;
 static int s_resolution = 12;
 
-/* DS18B20 family code */
-#define DS18B20_FAMILY_CODE 0x28
+/* DS18B20 family code and commands */
+#define DS18B20_FAMILY_CODE     0x28
+#define DS18B20_CMD_CONVERT     0x44
 
 esp_err_t onewire_temp_init(int gpio_num)
 {
@@ -118,47 +120,27 @@ esp_err_t onewire_temp_scan(onewire_sensor_t *sensors, int max_sensors, int *fou
     return ESP_OK;
 }
 
-esp_err_t onewire_temp_read(onewire_sensor_t *sensor)
+esp_err_t onewire_temp_read(onewire_sensor_t *sensor, int index)
 {
-    /* Find the matching device handle */
-    int idx = -1;
-    for (int i = 0; i < s_device_count; i++) {
-        if (s_ds18b20_handles[i] != NULL) {
-            /* Compare addresses - need to find by index since we stored them in order */
-            idx = i;
-            break;
-        }
-    }
-
-    if (idx < 0 || s_ds18b20_handles[idx] == NULL) {
-        ESP_LOGE(TAG, "Sensor not found or handle invalid");
+    if (index < 0 || index >= s_device_count || s_ds18b20_handles[index] == NULL) {
+        ESP_LOGE(TAG, "Invalid sensor index %d", index);
         sensor->valid = false;
         return ESP_ERR_NOT_FOUND;
     }
 
-    /* Trigger temperature conversion */
-    esp_err_t err = ds18b20_trigger_temperature_conversion(s_ds18b20_handles[idx]);
+    /* Trigger temperature conversion (library handles resolution-based delay) */
+    esp_err_t err = ds18b20_trigger_temperature_conversion(s_ds18b20_handles[index]);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to trigger conversion");
+        ESP_LOGE(TAG, "Failed to trigger conversion for sensor %d", index);
         sensor->valid = false;
         return err;
     }
 
-    /* Wait for conversion (depends on resolution) */
-    int delay_ms = 100;
-    switch (s_resolution) {
-        case 9:  delay_ms = 100; break;
-        case 10: delay_ms = 200; break;
-        case 11: delay_ms = 400; break;
-        case 12: delay_ms = 750; break;
-    }
-    vTaskDelay(pdMS_TO_TICKS(delay_ms));
-
     /* Read temperature */
     float temp;
-    err = ds18b20_get_temperature(s_ds18b20_handles[idx], &temp);
+    err = ds18b20_get_temperature(s_ds18b20_handles[index], &temp);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to read temperature");
+        ESP_LOGE(TAG, "Failed to read temperature from sensor %d", index);
         sensor->valid = false;
         return err;
     }
@@ -176,37 +158,54 @@ esp_err_t onewire_temp_read_all(onewire_sensor_t *sensors, int sensor_count)
         return ESP_ERR_INVALID_ARG;
     }
 
-    /* Trigger conversion on all devices simultaneously using skip ROM */
-    /* This requires all devices to convert at the same time */
-    for (int i = 0; i < sensor_count && i < s_device_count; i++) {
-        if (s_ds18b20_handles[i] != NULL) {
-            ds18b20_trigger_temperature_conversion(s_ds18b20_handles[i]);
-        }
+    int64_t start_time = esp_timer_get_time();
+
+    /* Step 1: Reset bus */
+    esp_err_t err = onewire_bus_reset(s_bus_handle);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Bus reset failed");
+        return err;
     }
-
-    /* Wait for conversion */
-    int delay_ms = 750;  /* Max delay for 12-bit resolution */
-    vTaskDelay(pdMS_TO_TICKS(delay_ms));
-
-    /* Read all temperatures */
+    
+    /* Step 2: Send Skip ROM + Convert command to all devices at once */
+    uint8_t cmd[2] = {ONEWIRE_CMD_SKIP_ROM, DS18B20_CMD_CONVERT};
+    err = onewire_bus_write_bytes(s_bus_handle, cmd, sizeof(cmd));
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to send convert command");
+        return err;
+    }
+    
+    /* Step 3: Wait for conversion (based on resolution) */
+    const int delays_ms[] = {100, 200, 400, 800};  /* 9, 10, 11, 12 bit */
+    int delay_idx = s_resolution - 9;
+    if (delay_idx < 0) delay_idx = 0;
+    if (delay_idx > 3) delay_idx = 3;
+    vTaskDelay(pdMS_TO_TICKS(delays_ms[delay_idx]));
+    
+    /* Step 4: Read temperature from each sensor */
     int64_t now = esp_timer_get_time() / 1000;
+    esp_err_t result = ESP_OK;
     
     for (int i = 0; i < sensor_count && i < s_device_count; i++) {
         if (s_ds18b20_handles[i] != NULL) {
             float temp;
-            esp_err_t err = ds18b20_get_temperature(s_ds18b20_handles[i], &temp);
+            err = ds18b20_get_temperature(s_ds18b20_handles[i], &temp);
             if (err == ESP_OK) {
                 sensors[i].temperature = temp;
                 sensors[i].valid = true;
                 sensors[i].last_read_time = now;
             } else {
                 sensors[i].valid = false;
+                result = err;
                 ESP_LOGW(TAG, "Failed to read sensor %d", i);
             }
         }
     }
 
-    return ESP_OK;
+    int64_t elapsed_ms = (esp_timer_get_time() - start_time) / 1000;
+    ESP_LOGD(TAG, "Read %d sensors in %lld ms", sensor_count, elapsed_ms);
+
+    return result;
 }
 
 void onewire_address_to_string(const uint8_t *address, char *str)
