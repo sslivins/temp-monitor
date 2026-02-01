@@ -18,11 +18,11 @@ add_executable(test_runner
     test_mqtt_utils.c
     test_config_utils.c
     test_nvs_utils.c
-    # Modules under test
+    # Modules under test (test-only utilities are local, version_utils is shared)
     ../main/version_utils.c
-    ../main/mqtt_utils.c
-    ../main/config_utils.c
-    ../main/nvs_utils.c
+    mqtt_utils.c
+    config_utils.c
+    nvs_utils.c
 )
 
 target_include_directories(test_runner PRIVATE

@@ -7,6 +7,7 @@
 #include "nvs_storage.h"
 #include "mqtt_client_ha.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include <string.h>
 
 static const char *TAG = "sensor_mgr";
@@ -26,7 +27,7 @@ static void load_friendly_name(managed_sensor_t *sensor)
         strncpy(sensor->friendly_name, name, MAX_FRIENDLY_NAME_LEN - 1);
         sensor->friendly_name[MAX_FRIENDLY_NAME_LEN - 1] = '\0';
         sensor->has_friendly_name = true;
-        ESP_LOGI(TAG, "Loaded friendly name for %s: %s", sensor->address_str, sensor->friendly_name);
+        ESP_LOGD(TAG, "Loaded friendly name for %s: %s", sensor->address_str, sensor->friendly_name);
     } else {
         sensor->friendly_name[0] = '\0';
         sensor->has_friendly_name = false;
@@ -35,7 +36,7 @@ static void load_friendly_name(managed_sensor_t *sensor)
 
 esp_err_t sensor_manager_init(void)
 {
-    ESP_LOGI(TAG, "Initializing sensor manager");
+    ESP_LOGD(TAG, "Initializing sensor manager");
     
     memset(s_sensors, 0, sizeof(s_sensors));
     s_sensor_count = 0;
@@ -58,14 +59,14 @@ esp_err_t sensor_manager_init(void)
     }
     
     s_sensor_count = found;
-    ESP_LOGI(TAG, "Sensor manager initialized with %d sensors", s_sensor_count);
+    ESP_LOGD(TAG, "Sensor manager initialized with %d sensors", s_sensor_count);
     
     return ESP_OK;
 }
 
 esp_err_t sensor_manager_rescan(void)
 {
-    ESP_LOGI(TAG, "Rescanning for sensors...");
+    ESP_LOGD(TAG, "Rescanning for sensors...");
     
     /* Save current friendly names */
     char saved_names[CONFIG_MAX_SENSORS][MAX_FRIENDLY_NAME_LEN];
@@ -98,7 +99,7 @@ esp_err_t sensor_manager_rescan(void)
     
     s_sensor_count = found;
     
-    ESP_LOGI(TAG, "Rescan complete: %d sensors found", s_sensor_count);
+    ESP_LOGD(TAG, "Rescan complete: %d sensors found", s_sensor_count);
     return ESP_OK;
 }
 
@@ -115,7 +116,11 @@ esp_err_t sensor_manager_read_all(void)
     }
 
     /* Read all temperatures */
+    int64_t start = esp_timer_get_time();
     esp_err_t err = onewire_temp_read_all(hw_sensors, s_sensor_count);
+    int64_t elapsed_ms = (esp_timer_get_time() - start) / 1000;
+    
+    ESP_LOGI(TAG, "Read %d sensors in %lld ms", s_sensor_count, elapsed_ms);
     
     /* Copy back results */
     for (int i = 0; i < s_sensor_count; i++) {
@@ -135,19 +140,27 @@ esp_err_t sensor_manager_read_all(void)
 
 esp_err_t sensor_manager_publish_all(void)
 {
+    int64_t start = esp_timer_get_time();
+    int published = 0;
+    
     for (int i = 0; i < s_sensor_count; i++) {
         if (s_sensors[i].hw_sensor.valid) {
             const char *name = s_sensors[i].has_friendly_name ? 
                                s_sensors[i].friendly_name : s_sensors[i].address_str;
             
-            mqtt_ha_publish_temperature(s_sensors[i].address_str, 
-                                        name,
-                                        s_sensors[i].hw_sensor.temperature);
+            if (mqtt_ha_publish_temperature(s_sensors[i].address_str, 
+                                            name,
+                                            s_sensors[i].hw_sensor.temperature) == ESP_OK) {
+                published++;
+            }
         }
     }
     
     /* Also publish diagnostic data (network status) */
     mqtt_ha_publish_diagnostics();
+    
+    int64_t elapsed_ms = (esp_timer_get_time() - start) / 1000;
+    ESP_LOGI(TAG, "Published %d sensors via MQTT in %lld ms", published, elapsed_ms);
     
     return ESP_OK;
 }

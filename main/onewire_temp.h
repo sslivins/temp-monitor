@@ -37,10 +37,11 @@ esp_err_t onewire_temp_init(int gpio_num);
 esp_err_t onewire_temp_scan(onewire_sensor_t *sensors, int max_sensors, int *found_count);
 
 /**
- * @brief Read temperature from a specific sensor
- * @param sensor Sensor to read (address must be set)
+ * @brief Read temperature from a specific sensor by index
+ * @param sensor Sensor to update with reading
+ * @param index Index of sensor in discovered array (0-based)
  */
-esp_err_t onewire_temp_read(onewire_sensor_t *sensor);
+esp_err_t onewire_temp_read(onewire_sensor_t *sensor, int index);
 
 /**
  * @brief Read temperature from all sensors
