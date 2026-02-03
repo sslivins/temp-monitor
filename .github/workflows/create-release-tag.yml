@@ -1,10 +1,10 @@
-name: Create Release Tag
+name: Create Release
 
 on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: 'Dry run (check version without creating tag)'
+        description: 'Dry run (check version and build without releasing)'
         required: false
         default: false
         type: boolean
@@ -13,13 +13,14 @@ permissions:
   contents: write
 
 jobs:
-  create-tag:
+  release:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Need full history to check existing tags
+          fetch-depth: 0
+          submodules: 'recursive'
 
       - name: Extract version from main.c
         id: version
@@ -34,19 +35,34 @@ jobs:
           echo "📦 Found version: $VERSION (tag: v$VERSION)"
 
       - name: Check if tag already exists
-        id: check_tag
         run: |
           TAG="${{ steps.version.outputs.tag }}"
           if git rev-parse "$TAG" >/dev/null 2>&1; then
-            echo "::error::Tag $TAG already exists!"
-            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "::error::Tag $TAG already exists! Bump APP_VERSION in main.c first."
             exit 1
-          else
-            echo "✅ Tag $TAG does not exist yet"
-            echo "exists=false" >> $GITHUB_OUTPUT
           fi
+          echo "✅ Tag $TAG does not exist yet"
 
-      - name: Create and push tag
+      - name: Install minify-html for HTML minification
+        run: pip install minify-html
+
+      - name: ESP-IDF Build
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.5.2
+          target: esp32
+          path: '.'
+
+      - name: Dry run summary
+        if: ${{ inputs.dry_run }}
+        run: |
+          echo "🔍 Dry run complete"
+          echo "Version: ${{ steps.version.outputs.version }}"
+          echo "Tag: ${{ steps.version.outputs.tag }}"
+          echo "Build: ✅ Success"
+          echo "No tag or release was created."
+
+      - name: Create tag
         if: ${{ !inputs.dry_run }}
         run: |
           TAG="${{ steps.version.outputs.tag }}"
@@ -58,10 +74,27 @@ jobs:
           git tag -a "$TAG" -m "Release $VERSION"
           git push origin "$TAG"
           
-          echo "🚀 Created and pushed tag: $TAG"
+          echo "🏷️ Created tag: $TAG"
 
-      - name: Dry run summary
-        if: ${{ inputs.dry_run }}
-        run: |
-          echo "🔍 Dry run complete - would create tag: ${{ steps.version.outputs.tag }}"
-          echo "No tag was created."
+      - name: Upload firmware artifact
+        if: ${{ !inputs.dry_run }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-${{ steps.version.outputs.tag }}
+          path: |
+            build/thermux.bin
+            build/bootloader/bootloader.bin
+            build/partition_table/partition-table.bin
+          retention-days: 90
+
+      - name: Create GitHub Release
+        if: ${{ !inputs.dry_run }}
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: Thermux ${{ steps.version.outputs.tag }}
+          files: |
+            build/thermux.bin
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
