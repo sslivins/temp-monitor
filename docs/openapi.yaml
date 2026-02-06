@@ -1,0 +1,1167 @@
+openapi: 3.1.0
+info:
+  title: Thermux API
+  description: |
+    REST API for the Thermux multi-sensor temperature monitoring system.
+    
+    Thermux is an ESP32-based temperature monitoring system that supports up to 20 DS18B20 sensors
+    with Home Assistant integration via MQTT auto-discovery.
+    
+    ## Authentication
+    
+    When authentication is enabled, most API endpoints require authentication via one of the following methods:
+    
+    - **Session Cookie**: Obtain by calling `POST /api/auth/login` with credentials. The session cookie
+      is automatically included in subsequent requests.
+    - **API Key**: Include the `X-API-Key` header with your API key for stateless API access.
+    
+    Endpoints under `/api/auth/*` do not require authentication.
+  version: 1.0.0
+  license:
+    name: MIT
+    url: https://github.com/sslivins/thermux/blob/main/LICENSE
+  contact:
+    name: Thermux Project
+    url: https://github.com/sslivins/thermux
+
+servers:
+  - url: http://thermux.local
+    description: mDNS hostname (default)
+  - url: http://{device_ip}
+    description: Device IP address
+    variables:
+      device_ip:
+        default: 192.168.1.100
+
+tags:
+  - name: Status
+    description: Device status and system information
+  - name: Sensors
+    description: Temperature sensor management
+  - name: Configuration
+    description: Device configuration endpoints
+  - name: Authentication
+    description: Login, logout, and session management
+  - name: OTA
+    description: Over-the-air firmware updates
+  - name: Logs
+    description: System log management
+  - name: System
+    description: System control operations
+
+paths:
+  /api/status:
+    get:
+      tags:
+        - Status
+      summary: Get device status
+      description: Returns system information including version, uptime, memory, and network status.
+      operationId: getStatus
+      security:
+        - sessionCookie: []
+        - apiKey: []
+      responses:
+        '200':
+          description: Device status information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceStatus'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/sensors:
+    get:
+      tags:
+        - Sensors
+      summary: Get all sensors
+      description: Returns all discovered temperature sensors with current readings.
+      operationId: getSensors
+      security:
+        - sessionCookie: []
+        - apiKey: []
+      responses:
+        '200':
+          description: List of temperature sensors
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Sensor'
+              example:
+                - address: "28FF1234567890AB"
+                  temperature: 22.5
+                  valid: true
+                  friendly_name: "Living Room"
+                - address: "28FF0987654321CD"
+                  temperature: 18.3
+                  valid: true
+                  friendly_name: null
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/sensors/rescan:
+    post:
+      tags:
+        - Sensors
+      summary: Rescan for sensors
+      description: Triggers a new 1-Wire bus scan to discover sensors.
+      operationId: rescanSensors
+      security:
+        - sessionCookie: []
+        - apiKey: []
+      responses:
+        '200':
+          description: Rescan result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    description: Whether the rescan was successful
+                  sensor_count:
+                    type: integer
+                    description: Number of sensors discovered
+                example:
+                  success: true
+                  sensor_count: 5
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/sensors/{address}/name:
+    post:
+      tags:
+        - Sensors
+      summary: Set sensor friendly name
+      description: Assigns a friendly name to a sensor identified by its 1-Wire address.
+      operationId: setSensorName
+      security:
+        - sessionCookie: []
+        - apiKey: []
+      parameters:
+        - name: address
+          in: path
+          required: true
+          description: The 16-character hex address of the DS18B20 sensor
+          schema:
+            type: string
+            pattern: '^[0-9A-Fa-f]{16}$'
+            example: "28FF1234567890AB"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - friendly_name
+              properties:
+                friendly_name:
+                  type: string
+                  maxLength: 63
+                  description: The friendly name for the sensor. Empty string clears the name.
+                  example: "Kitchen"
+      responses:
+        '200':
+          description: Name set successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '400':
+          description: Invalid request
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Sensor not found
+
+  /api/auth/login:
+    post:
+      tags:
+        - Authentication
+      summary: Login
+      description: |
+        Authenticate with username and password. On success, sets a session cookie
+        that can be used for subsequent authenticated requests.
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - username
+                - password
+              properties:
+                username:
+                  type: string
+                  example: "admin"
+                password:
+                  type: string
+                  format: password
+                  example: "secret"
+      responses:
+        '200':
+          description: Login result
+          headers:
+            Set-Cookie:
+              description: Session cookie (on successful login)
+              schema:
+                type: string
+                example: "session=abc123def456; Path=/; HttpOnly; SameSite=Strict"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    description: Whether login was successful
+              example:
+                success: true
+
+  /api/auth/logout:
+    post:
+      tags:
+        - Authentication
+      summary: Logout
+      description: Destroys the current session and clears the session cookie.
+      operationId: logout
+      responses:
+        '200':
+          description: Logout successful
+          headers:
+            Set-Cookie:
+              description: Clears the session cookie
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /api/auth/status:
+    get:
+      tags:
+        - Authentication
+      summary: Get auth status
+      description: Check if authentication is enabled and if the current session is valid.
+      operationId: getAuthStatus
+      responses:
+        '200':
+          description: Authentication status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  auth_enabled:
+                    type: boolean
+                    description: Whether authentication is enabled on the device
+                  logged_in:
+                    type: boolean
+                    description: Whether the current session is authenticated
+                  username:
+                    type: string
+                    description: The logged-in username (only present if logged in)
+              examples:
+                authenticated:
+                  summary: Logged in
+                  value:
+                    auth_enabled: true
+                    logged_in: true
+                    username: "admin"
+                notAuthenticated:
+                  summary: Not logged in
+                  value:
+                    auth_enabled: true
+                    logged_in: false
+                authDisabled:
+                  summary: Auth disabled
+                  value:
+                    auth_enabled: false
+                    logged_in: true
+
+  /api/config/auth:
+    get:
+      tags:
+        - Configuration
+      summary: Get auth configuration
+      description: Returns the current authentication settings including the API key.
+      operationId: getAuthConfig
+      security:
+        - sessionCookie: []
+        - apiKey: []
+      responses:
+        '200':
+          description: Auth configuration
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled:
+                    type: boolean
+                    description: Whether authentication is enabled
+                  username:
+                    type: string
+                    description: The configured username
+                  api_key:
+                    type: string
+                    description: The API key for stateless authentication
+              example:
+                enabled: true
+                username: "admin"
+                api_key: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags:
+        - Configuration
+      summary: Set auth configuration
+      description: Update authentication settings. Leave password blank to keep current password.
+      operationId: setAuthConfig
+      security:
+        - sessionCookie: []
+        - apiKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled:
+                  type: boolean
+                  description: Enable or disable authentication
+                username:
+                  type: string
+                  maxLength: 32
+                  description: Username for login
+                password:
+                  type: string
+                  maxLength: 64
+                  description: Password for login (leave blank to keep current)
+            example:
+              enabled: true
+              username: "admin"
+              password: "newpassword"
+      responses:
+        '200':
+          description: Configuration saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/config/auth/regenerate-key:
+    post:
+      tags:
+        - Configuration
+      summary: Regenerate API key
+      description: Generates a new random API key, invalidating the previous one.
+      operationId: regenerateApiKey
+      security:
+        - sessionCookie: []
+        - apiKey: []
+      responses:
+        '200':
+          description: New API key generated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  api_key:
+                    type: string
+                    description: The newly generated API key
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/config/wifi:
+    get:
+      tags:
+        - Configuration
+      summary: Get WiFi configuration
+      description: Returns the configured WiFi SSID. Password is not returned for security.
+      operationId: getWifiConfig
+      security:
+        - sessionCookie: []
+        - apiKey: []
+      responses:
+        '200':
+          description: WiFi configuration
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ssid:
+                    type: string
+                    description: Configured WiFi network name
+              example:
+                ssid: "MyNetwork"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags:
+        - Configuration
+      summary: Set WiFi configuration
+      description: Configure WiFi credentials. Requires device restart to apply.
+      operationId: setWifiConfig
+      security:
+        - sessionCookie: []
+        - apiKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - ssid
+              properties:
+                ssid:
+                  type: string
+                  maxLength: 31
+                  description: WiFi network name
+                password:
+                  type: string
+                  maxLength: 63
+                  description: WiFi password (leave blank to keep current)
+            example:
+              ssid: "MyNetwork"
+              password: "wifi_password"
+      responses:
+        '200':
+          description: Configuration saved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+              example:
+                success: true
+                message: "WiFi config saved. Restart to apply."
+        '400':
+          description: Missing or invalid SSID
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/config/mqtt:
+    get:
+      tags:
+        - Configuration
+      summary: Get MQTT configuration
+      description: Returns the MQTT broker configuration. Password is not returned for security.
+      operationId: getMqttConfig
+      security:
+        - sessionCookie: []
+        - apiKey: []
+      responses:
+        '200':
+          description: MQTT configuration
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  uri:
+                    type: string
+                    description: MQTT broker URI
+                  username:
+                    type: string
+                    description: MQTT username
+              example:
+                uri: "mqtt://192.168.1.10:1883"
+                username: "homeassistant"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags:
+        - Configuration
+      summary: Set MQTT configuration
+      description: Configure MQTT broker settings.
+      operationId: setMqttConfig
+      security:
+        - sessionCookie: []
+        - apiKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - uri
+              properties:
+                uri:
+                  type: string
+                  maxLength: 127
+                  description: MQTT broker URI (e.g., mqtt://host:1883)
+                username:
+                  type: string
+                  maxLength: 63
+                  description: MQTT username
+                password:
+                  type: string
+                  maxLength: 63
+                  description: MQTT password (leave blank to keep current)
+            example:
+              uri: "mqtt://192.168.1.10:1883"
+              username: "homeassistant"
+              password: "mqtt_password"
+      responses:
+        '200':
+          description: Configuration saved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+              example:
+                success: true
+                message: "MQTT config saved"
+        '400':
+          description: Missing or invalid URI
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/mqtt/reconnect:
+    post:
+      tags:
+        - Configuration
+      summary: Reconnect MQTT
+      description: Forces MQTT client to disconnect and reconnect with current settings.
+      operationId: reconnectMqtt
+      security:
+        - sessionCookie: []
+        - apiKey: []
+      responses:
+        '200':
+          description: Reconnection initiated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+              example:
+                success: true
+                message: "MQTT reconnecting"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/config/sensor:
+    get:
+      tags:
+        - Configuration
+      summary: Get sensor configuration
+      description: Returns sensor reading and publishing interval settings.
+      operationId: getSensorConfig
+      security:
+        - sessionCookie: []
+        - apiKey: []
+      responses:
+        '200':
+          description: Sensor configuration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SensorConfig'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags:
+        - Configuration
+      summary: Set sensor configuration
+      description: Configure sensor reading and publishing intervals.
+      operationId: setSensorConfig
+      security:
+        - sessionCookie: []
+        - apiKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SensorConfig'
+      responses:
+        '200':
+          description: Configuration saved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+              example:
+                success: true
+                message: "Sensor settings saved"
+        '400':
+          description: Invalid values
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/wifi/scan:
+    get:
+      tags:
+        - Configuration
+      summary: Scan for WiFi networks
+      description: Scans for available WiFi networks and returns the list.
+      operationId: scanWifiNetworks
+      security:
+        - sessionCookie: []
+        - apiKey: []
+      responses:
+        '200':
+          description: WiFi scan results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  networks:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        ssid:
+                          type: string
+                          description: Network name
+                        rssi:
+                          type: integer
+                          description: Signal strength in dBm
+                        channel:
+                          type: integer
+                          description: WiFi channel
+                        secure:
+                          type: boolean
+                          description: Whether the network requires a password
+                  error:
+                    type: string
+                    description: Error message if scan failed
+              example:
+                success: true
+                networks:
+                  - ssid: "MyNetwork"
+                    rssi: -45
+                    channel: 6
+                    secure: true
+                  - ssid: "Neighbor"
+                    rssi: -72
+                    channel: 11
+                    secure: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/ota/check:
+    post:
+      tags:
+        - OTA
+      summary: Check for firmware updates
+      description: |
+        Starts an asynchronous check for available firmware updates from the configured
+        GitHub releases URL. Poll `/api/ota/status` to get the result.
+      operationId: checkForUpdates
+      security:
+        - sessionCookie: []
+        - apiKey: []
+      responses:
+        '200':
+          description: Check started
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  checking:
+                    type: boolean
+                    description: Whether the check has started
+                  current_version:
+                    type: string
+                    description: Currently running firmware version
+              example:
+                checking: true
+                current_version: "1.2.3"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/ota/status:
+    get:
+      tags:
+        - OTA
+      summary: Get OTA status
+      description: Returns the current OTA check result and download progress.
+      operationId: getOtaStatus
+      security:
+        - sessionCookie: []
+        - apiKey: []
+      responses:
+        '200':
+          description: OTA status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OtaStatus'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/ota/update:
+    post:
+      tags:
+        - OTA
+      summary: Start firmware update
+      description: |
+        Starts downloading and installing the available firmware update.
+        Only works if an update is available (call `/api/ota/check` first).
+        The device will restart after successful installation.
+      operationId: startOtaUpdate
+      security:
+        - sessionCookie: []
+        - apiKey: []
+      responses:
+        '200':
+          description: Update status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  started:
+                    type: boolean
+                    description: Whether the update was started
+                  message:
+                    type: string
+              examples:
+                started:
+                  summary: Update started
+                  value:
+                    started: true
+                    message: "Update starting, device will restart"
+                noUpdate:
+                  summary: No update available
+                  value:
+                    started: false
+                    message: "No update available"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/ota/upload:
+    post:
+      tags:
+        - OTA
+      summary: Upload firmware manually
+      description: |
+        Upload a firmware binary file directly to the device. The file must be
+        a valid ESP32 firmware binary (.bin file from the build output).
+        The device will restart after successful upload.
+      operationId: uploadFirmware
+      security:
+        - sessionCookie: []
+        - apiKey: []
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+              description: Raw firmware binary data
+      responses:
+        '200':
+          description: Upload successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+              example:
+                success: true
+                message: "Firmware uploaded successfully, restarting..."
+        '400':
+          description: Invalid firmware file
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+              example:
+                success: false
+                message: "Invalid firmware file - not an ESP32 binary"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          description: Upload failed
+
+  /api/logs:
+    get:
+      tags:
+        - Logs
+      summary: Get system logs
+      description: Returns the contents of the 16KB circular log buffer.
+      operationId: getLogs
+      security:
+        - sessionCookie: []
+        - apiKey: []
+      responses:
+        '200':
+          description: Log contents
+          content:
+            text/plain:
+              schema:
+                type: string
+                description: Log text content
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/logs/clear:
+    post:
+      tags:
+        - Logs
+      summary: Clear log buffer
+      description: Clears all logs from the circular buffer.
+      operationId: clearLogs
+      security:
+        - sessionCookie: []
+        - apiKey: []
+      responses:
+        '200':
+          description: Logs cleared
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/logs/level:
+    get:
+      tags:
+        - Logs
+      summary: Get log level
+      description: Returns the current log verbosity level.
+      operationId: getLogLevel
+      security:
+        - sessionCookie: []
+        - apiKey: []
+      responses:
+        '200':
+          description: Current log level
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogLevel'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags:
+        - Logs
+      summary: Set log level
+      description: Changes the log verbosity level for all components.
+      operationId: setLogLevel
+      security:
+        - sessionCookie: []
+        - apiKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - level
+              properties:
+                level:
+                  type: integer
+                  minimum: 0
+                  maximum: 5
+                  description: |
+                    Log level:
+                    - 0: None
+                    - 1: Error
+                    - 2: Warning
+                    - 3: Info
+                    - 4: Debug
+                    - 5: Verbose
+            example:
+              level: 3
+      responses:
+        '200':
+          description: Log level changed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '400':
+          description: Invalid level (must be 0-5)
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/system/restart:
+    post:
+      tags:
+        - System
+      summary: Restart device
+      description: Triggers a device reboot. The response is sent before the restart occurs.
+      operationId: restartDevice
+      security:
+        - sessionCookie: []
+        - apiKey: []
+      responses:
+        '200':
+          description: Restart initiated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+              example:
+                success: true
+                message: "Restarting..."
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/system/factory-reset:
+    post:
+      tags:
+        - System
+      summary: Factory reset
+      description: |
+        Erases all stored configuration (WiFi, MQTT, sensor names, etc.) and restarts
+        the device with default settings.
+      operationId: factoryReset
+      security:
+        - sessionCookie: []
+        - apiKey: []
+      responses:
+        '200':
+          description: Factory reset result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  error:
+                    type: string
+              examples:
+                success:
+                  summary: Reset successful
+                  value:
+                    success: true
+                    message: "Factory reset complete. Restarting..."
+                failed:
+                  summary: Reset failed
+                  value:
+                    success: false
+                    error: "Factory reset failed"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: session
+      description: Session cookie obtained from /api/auth/login
+    apiKey:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: API key for stateless authentication (obtain from /api/config/auth)
+
+  schemas:
+    DeviceStatus:
+      type: object
+      properties:
+        version:
+          type: string
+          description: Firmware version
+          example: "1.2.3"
+        sensor_count:
+          type: integer
+          description: Number of discovered temperature sensors
+          example: 5
+        uptime_seconds:
+          type: integer
+          description: Device uptime in seconds
+          example: 86400
+        free_heap:
+          type: integer
+          description: Free heap memory in bytes
+          example: 120000
+        mqtt_connected:
+          type: boolean
+          description: Whether MQTT is connected
+        ethernet_connected:
+          type: boolean
+          description: Whether Ethernet is connected
+        wifi_connected:
+          type: boolean
+          description: Whether WiFi is connected
+        ethernet_ip:
+          type: string
+          description: Ethernet IP address (empty if not connected)
+          example: "192.168.1.100"
+        wifi_ip:
+          type: string
+          description: WiFi IP address (empty if not connected)
+          example: ""
+
+    Sensor:
+      type: object
+      properties:
+        address:
+          type: string
+          description: 16-character hex address of the DS18B20 sensor
+          example: "28FF1234567890AB"
+        temperature:
+          type: number
+          format: float
+          description: Current temperature reading in Celsius
+          example: 22.5
+        valid:
+          type: boolean
+          description: Whether the last reading was valid
+        friendly_name:
+          type: string
+          nullable: true
+          description: User-assigned friendly name (null if not set)
+          example: "Living Room"
+
+    SensorConfig:
+      type: object
+      properties:
+        read_interval:
+          type: integer
+          description: Sensor read interval in milliseconds (1000-300000)
+          minimum: 1000
+          maximum: 300000
+          example: 5000
+        publish_interval:
+          type: integer
+          description: MQTT publish interval in milliseconds (5000-600000)
+          minimum: 5000
+          maximum: 600000
+          example: 30000
+        resolution:
+          type: integer
+          description: DS18B20 resolution in bits (9-12)
+          minimum: 9
+          maximum: 12
+          example: 12
+
+    OtaStatus:
+      type: object
+      properties:
+        checking:
+          type: boolean
+          description: Whether an update check is in progress
+        result:
+          type: integer
+          description: Check result (0=in progress, 1=complete, -1=failed)
+          enum: [-1, 0, 1]
+        update_available:
+          type: boolean
+          description: Whether a newer version is available
+        current_version:
+          type: string
+          description: Currently running firmware version
+          example: "1.2.3"
+        latest_version:
+          type: string
+          description: Latest available version (empty if not checked)
+          example: "1.3.0"
+        update_state:
+          type: integer
+          description: Update state (0=idle, 1=downloading, 2=complete, -1=failed)
+          enum: [-1, 0, 1, 2]
+        download_progress:
+          type: integer
+          description: Download progress percentage (0-100)
+          minimum: 0
+          maximum: 100
+        download_received:
+          type: integer
+          description: Bytes received
+        download_total:
+          type: integer
+          description: Total bytes to download
+
+    LogLevel:
+      type: object
+      properties:
+        level:
+          type: integer
+          description: Numeric log level (0-5)
+          minimum: 0
+          maximum: 5
+          example: 3
+        level_name:
+          type: string
+          description: Human-readable log level name
+          enum:
+            - none
+            - error
+            - warn
+            - info
+            - debug
+            - verbose
+          example: "info"
+
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+
+  responses:
+    Unauthorized:
+      description: Authentication required
+      content:
+        text/html:
+          schema:
+            type: string
+            description: Redirect to login page or 401 error

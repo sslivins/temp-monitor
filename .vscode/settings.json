@@ -13,5 +13,6 @@
     "--query-driver=**",
     "--compile-commands-dir=j:\\code\\temp-monitor\\build"
   ],
-  "idf.portWin": "COM10"
+  "idf.portWin": "COM10",
+  "idf.currentSetup": "C:\\Users\\Stefan\\esp\\v5.4.3\\esp-idf"
 }
