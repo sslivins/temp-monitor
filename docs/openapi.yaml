@@ -383,6 +383,13 @@ paths:
                   api_key:
                     type: string
                     description: The newly generated API key
+                  message:
+                    type: string
+                    description: Status message
+              example:
+                success: true
+                api_key: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                message: "API key regenerated"
         '401':
           $ref: '#/components/responses/Unauthorized'
 
@@ -702,12 +709,34 @@ paths:
                   checking:
                     type: boolean
                     description: Whether the check has started
+                  message:
+                    type: string
+                    description: Status message
+                  error:
+                    type: string
+                    description: Error message (if check failed to start)
                   current_version:
                     type: string
                     description: Currently running firmware version
-              example:
-                checking: true
-                current_version: "1.2.3"
+              examples:
+                started:
+                  summary: Check started
+                  value:
+                    checking: true
+                    message: "Check started"
+                    current_version: "2.0.3"
+                alreadyRunning:
+                  summary: Check already in progress
+                  value:
+                    checking: true
+                    message: "Check already in progress"
+                    current_version: "2.0.3"
+                failed:
+                  summary: Failed to start
+                  value:
+                    checking: false
+                    error: "Failed to start check"
+                    current_version: "2.0.3"
         '401':
           $ref: '#/components/responses/Unauthorized'
 
