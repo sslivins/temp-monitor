@@ -60,11 +60,11 @@ extern esp_err_t mqtt_ha_start(void);
 /* Forward declarations */
 static void generate_api_key(void);
 
-/* Embedded HTML files (minified at build time) */
-extern const uint8_t index_html_start[] asm("_binary_index_html_start");
-extern const uint8_t index_html_end[] asm("_binary_index_html_end");
-extern const uint8_t config_html_start[] asm("_binary_config_html_start");
-extern const uint8_t config_html_end[] asm("_binary_config_html_end");
+/* Embedded HTML files (gzipped at build time) */
+extern const uint8_t index_html_gz_start[] asm("_binary_index_html_gz_start");
+extern const uint8_t index_html_gz_end[] asm("_binary_index_html_gz_end");
+extern const uint8_t config_html_gz_start[] asm("_binary_config_html_gz_start");
+extern const uint8_t config_html_gz_end[] asm("_binary_config_html_gz_end");
 
 /**
  * @brief Load auth config from NVS (called at startup)
@@ -307,7 +307,8 @@ static esp_err_t index_get_handler(httpd_req_t *req)
 {
     CHECK_PAGE_AUTH(req);
     httpd_resp_set_type(req, "text/html");
-    httpd_resp_send(req, (const char *)index_html_start, index_html_end - index_html_start);
+    httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
+    httpd_resp_send(req, (const char *)index_html_gz_start, index_html_gz_end - index_html_gz_start);
     return ESP_OK;
 }
 
@@ -490,7 +491,8 @@ static esp_err_t config_get_handler(httpd_req_t *req)
 {
     CHECK_PAGE_AUTH(req);
     httpd_resp_set_type(req, "text/html");
-    httpd_resp_send(req, (const char *)config_html_start, config_html_end - config_html_start);
+    httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
+    httpd_resp_send(req, (const char *)config_html_gz_start, config_html_gz_end - config_html_gz_start);
     return ESP_OK;
 }
 
@@ -1337,6 +1339,7 @@ static const char *login_html =
 ".form-group{margin-bottom:20px}"
 "label{display:block;color:#aaa;margin-bottom:8px;font-size:0.9em}"
 "input{width:100%;padding:12px 16px;border:1px solid rgba(255,255,255,0.1);border-radius:8px;background:rgba(0,0,0,0.2);color:#fff;font-size:1em;transition:border-color 0.2s}"
+"input::-ms-reveal{filter:invert(1)}input::-webkit-credentials-auto-fill-button{filter:invert(1)}"
 "input:focus{outline:none;border-color:#4da6ff}"
 ".btn{width:100%;padding:14px;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);border:none;border-radius:8px;color:#fff;font-size:1em;font-weight:600;cursor:pointer;transition:transform 0.2s,box-shadow 0.2s}"
 ".btn:hover{transform:translateY(-2px);box-shadow:0 4px 20px rgba(102,126,234,0.4)}"
@@ -1349,8 +1352,8 @@ static const char *login_html =
 "<h1>Thermux</h1>"
 "<div class=\"error\" id=\"error\">Invalid username or password</div>"
 "<form id=\"loginForm\">"
-"<div class=\"form-group\"><label>Username</label><input type=\"text\" id=\"username\" autocomplete=\"username\" required></div>"
-"<div class=\"form-group\"><label>Password</label><input type=\"password\" id=\"password\" autocomplete=\"current-password\" required></div>"
+"<div class=\"form-group\"><label>Username</label><input type=\"text\" id=\"username\" autocomplete=\"username\" autocapitalize=\"none\" autocorrect=\"off\" spellcheck=\"false\" enterkeyhint=\"next\" required></div>"
+"<div class=\"form-group\"><label>Password</label><input type=\"password\" id=\"password\" autocomplete=\"current-password\" enterkeyhint=\"done\" required></div>"
 "<button type=\"submit\" class=\"btn\">Sign In</button>"
 "</form></div>"
 "<script>"
