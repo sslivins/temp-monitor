@@ -43,9 +43,6 @@ jobs:
           fi
           echo "✅ Tag $TAG does not exist yet"
 
-      - name: Install minify-html for HTML minification
-        run: pip install minify-html
-
       - name: ESP-IDF Build
         uses: espressif/esp-idf-ci-action@v1
         with:

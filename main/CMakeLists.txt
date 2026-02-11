@@ -2,30 +2,33 @@
 set(HTML_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/html")
 set(HTML_BUILD_DIR "${CMAKE_CURRENT_SOURCE_DIR}/html_gz")
 
-# Create gzipped output directory
-file(MAKE_DIRECTORY ${HTML_BUILD_DIR})
+# Only run gzip during actual build (not during requirements discovery phase)
+if(EXISTS ${HTML_SRC_DIR})
+    # Create gzipped output directory
+    file(MAKE_DIRECTORY ${HTML_BUILD_DIR})
 
-# Find Python
-find_package(Python3 REQUIRED)
+    # Find Python
+    find_package(Python3 REQUIRED)
 
-# Run HTML gzip compression during configuration
-# Note: If you edit HTML files, run: python scripts/gzip_html.py main/html main/html_gz
-# Or do a full clean build: idf.py fullclean && idf.py build
-execute_process(
-    COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/gzip_html.py" 
-            "${HTML_SRC_DIR}" "${HTML_BUILD_DIR}"
-    RESULT_VARIABLE GZIP_RESULT
-    OUTPUT_VARIABLE GZIP_OUTPUT
-    ERROR_VARIABLE GZIP_ERROR
-    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-)
+    # Run HTML gzip compression during configuration
+    # Note: If you edit HTML files, run: python scripts/gzip_html.py main/html main/html_gz
+    # Or do a full clean build: idf.py fullclean && idf.py build
+    execute_process(
+        COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/gzip_html.py" 
+                "${HTML_SRC_DIR}" "${HTML_BUILD_DIR}"
+        RESULT_VARIABLE GZIP_RESULT
+        OUTPUT_VARIABLE GZIP_OUTPUT
+        ERROR_VARIABLE GZIP_ERROR
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+    )
 
-if(NOT GZIP_RESULT EQUAL 0)
-    message(WARNING "HTML gzip compression failed: ${GZIP_ERROR}")
-    message(FATAL_ERROR "Cannot build without gzipped HTML files")
-else()
-    message(STATUS "HTML gzip compression:")
-    message(STATUS "${GZIP_OUTPUT}")
+    if(NOT GZIP_RESULT EQUAL 0)
+        message(WARNING "HTML gzip compression failed: ${GZIP_ERROR}")
+        message(FATAL_ERROR "Cannot build without gzipped HTML files")
+    else()
+        message(STATUS "HTML gzip compression:")
+        message(STATUS "${GZIP_OUTPUT}")
+    endif()
 endif()
 
 idf_component_register(
