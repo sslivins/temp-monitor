@@ -15,6 +15,7 @@ A multi-sensor temperature monitoring system for ESP32-POE boards with Home Assi
 - **mDNS** - Access via `thermux.local` (auto-increments on collision: thermux-2.local, etc.)
 - **Service Discovery** - Discoverable via `_thermux._tcp` and `_http._tcp` services
 - **Web-based Logs** - View system logs without serial connection (16KB circular buffer)
+- **Bus Error Tracking** - Monitor 1-Wire CRC error rates per sensor and globally via web UI and Home Assistant
 - **Runtime Log Level Control** - Change log verbosity via web UI without reflashing
 - **Session-based Authentication** - Optional password protection with login page
 - **API Key Authentication** - Stateless API access for scripts and automation
@@ -35,7 +36,7 @@ A multi-sensor temperature monitoring system for ESP32-POE boards with Home Assi
 | GND (Black) | GND       |
 | DATA (Yellow) | GPIO4   |
 
-> **Note**: A 4.7kΩ pull-up resistor is required between DATA and VCC.
+> **Note**: A 4.7kΩ pull-up resistor is required between DATA and VCC. For 10+ sensors, use 2.2kΩ or 1.5kΩ to ensure reliable bus communication (the ESP32's internal pull-up is too weak for 1-Wire).
 
 ## Building
 
@@ -86,165 +87,13 @@ After flashing, access the web interface at `http://thermux.local` or the device
 
 ## REST API
 
-### Sensors
+Full API documentation is available as an OpenAPI 3.1 spec: [`docs/openapi.yaml`](docs/openapi.yaml)
 
-#### Get All Sensors
-```
-GET /api/sensors
-```
-
-Returns all discovered temperature sensors with current readings:
-
-```json
-[
-  {
-    "address": "28FF1234567890AB",
-    "temperature": 22.5,
-    "valid": true,
-    "friendly_name": "Living Room"
-  },
-  {
-    "address": "28FF0987654321CD",
-    "temperature": 18.3,
-    "valid": true,
-    "friendly_name": null
-  }
-]
-```
-
-#### Rescan for Sensors
-```
-POST /api/sensors/rescan
-```
-
-Triggers a new 1-Wire bus scan to discover sensors.
-
-#### Set Sensor Name
-```
-POST /api/sensors/{address}/name
-Content-Type: application/json
-
-{"name": "Kitchen"}
-```
-
-### Configuration
-
-#### Get/Set MQTT Config
-```
-GET  /api/config/mqtt
-POST /api/config/mqtt
-```
-
-#### Get/Set WiFi Config
-```
-GET  /api/config/wifi
-POST /api/config/wifi
-```
-
-#### Get/Set Sensor Config
-```
-GET  /api/config/sensor
-POST /api/config/sensor
-```
-
-#### Get/Set OTA Config
-```
-GET  /api/config/ota
-POST /api/config/ota
-```
-
-### System
-
-#### Get Device Status
-```
-GET /api/status
-```
-
-Returns system information including version, uptime, memory, and network status.
-
-#### Restart Device
-```
-POST /api/system/restart
-```
-
-Triggers a device reboot.
-
-#### WiFi Network Scan
-```
-GET /api/wifi/scan
-```
-
-Returns available WiFi networks for configuration.
-
-### Logs
-
-#### Get Log Buffer
-```
-GET /api/logs
-```
-
-Returns the contents of the 16KB circular log buffer.
-
-#### Clear Logs
-```
-POST /api/logs/clear
-```
-
-Clears the log buffer.
-
-#### Get/Set Log Level
-```
-GET /api/logs/level
-POST /api/logs/level
-Content-Type: application/json
-
-{"level": 3}
-```
-
-Log levels: 0=None, 1=Error, 2=Warning, 3=Info, 4=Debug, 5=Verbose
-
-### Authentication
-
-#### Get Auth Config
-```
-GET /api/config/auth
-```
-
-Returns `{"enabled": true, "username": "admin"}`
-
-#### Set Auth Config
-```
-POST /api/config/auth
-Content-Type: application/json
-
-{"enabled": true, "username": "admin", "password": "secret"}
-```
-
-Leave password blank to keep current password when updating.
-
-### OTA Updates
-
-#### Check for Updates
-```
-GET /api/ota/check
-```
-
-#### Start Update from URL
-```
-POST /api/ota/update
-```
-
-#### Manual Firmware Upload
-```
-POST /api/ota/upload
-Content-Type: application/octet-stream
-
-<binary firmware data>
-```
+View it interactively: [Swagger Editor](https://editor.swagger.io/?url=https://raw.githubusercontent.com/sslivins/thermux/main/docs/openapi.yaml)
 
 ## Home Assistant Integration
 
-The device automatically registers sensors with Home Assistant via MQTT discovery. Each sensor appears as a temperature entity.
+The device automatically registers sensors with Home Assistant via MQTT discovery. Each sensor appears as a temperature entity. Diagnostic entities for network status and bus error rates are also published.
 
 ### Manual REST Integration (Optional)
 
