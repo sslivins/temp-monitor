@@ -15,6 +15,7 @@ A multi-sensor temperature monitoring system for ESP32-POE boards with Home Assi
 - **mDNS** - Access via `thermux.local` (auto-increments on collision: thermux-2.local, etc.)
 - **Service Discovery** - Discoverable via `_thermux._tcp` and `_http._tcp` services
 - **Web-based Logs** - View system logs without serial connection (16KB circular buffer)
+- **Bus Error Tracking** - Monitor 1-Wire CRC error rates per sensor and globally via web UI and Home Assistant
 - **Runtime Log Level Control** - Change log verbosity via web UI without reflashing
 - **Session-based Authentication** - Optional password protection with login page
 - **API Key Authentication** - Stateless API access for scripts and automation
@@ -35,7 +36,7 @@ A multi-sensor temperature monitoring system for ESP32-POE boards with Home Assi
 | GND (Black) | GND       |
 | DATA (Yellow) | GPIO4   |
 
-> **Note**: A 4.7kΩ pull-up resistor is required between DATA and VCC.
+> **Note**: A 4.7kΩ pull-up resistor is required between DATA and VCC. For 10+ sensors, use 2.2kΩ or 1.5kΩ to ensure reliable bus communication (the ESP32's internal pull-up is too weak for 1-Wire).
 
 ## Building
 
@@ -101,13 +102,17 @@ Returns all discovered temperature sensors with current readings:
     "address": "28FF1234567890AB",
     "temperature": 22.5,
     "valid": true,
-    "friendly_name": "Living Room"
+    "friendly_name": "Living Room",
+    "total_reads": 1500,
+    "failed_reads": 0
   },
   {
     "address": "28FF0987654321CD",
     "temperature": 18.3,
     "valid": true,
-    "friendly_name": null
+    "friendly_name": null,
+    "total_reads": 1500,
+    "failed_reads": 2
   }
 ]
 ```
@@ -118,6 +123,13 @@ POST /api/sensors/rescan
 ```
 
 Triggers a new 1-Wire bus scan to discover sensors.
+
+#### Reset Bus Error Statistics
+```
+POST /api/sensors/error-stats/reset
+```
+
+Resets the global and per-sensor read/error counters to zero.
 
 #### Set Sensor Name
 ```
@@ -160,7 +172,7 @@ POST /api/config/ota
 GET /api/status
 ```
 
-Returns system information including version, uptime, memory, and network status.
+Returns system information including version, uptime, memory, network status, and 1-Wire bus error statistics.
 
 #### Restart Device
 ```
@@ -244,7 +256,7 @@ Content-Type: application/octet-stream
 
 ## Home Assistant Integration
 
-The device automatically registers sensors with Home Assistant via MQTT discovery. Each sensor appears as a temperature entity.
+The device automatically registers sensors with Home Assistant via MQTT discovery. Each sensor appears as a temperature entity. Diagnostic entities for network status and bus error rates are also published.
 
 ### Manual REST Integration (Optional)
 
