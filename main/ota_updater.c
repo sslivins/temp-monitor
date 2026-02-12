@@ -357,7 +357,7 @@ static void ota_update_task(void *pvParameters)
         .url = s_download_url,
         .timeout_ms = 60000,
         .crt_bundle_attach = esp_crt_bundle_attach,
-        .buffer_size = 4096,      /* Larger buffer for faster download */
+        .buffer_size = 8192,      /* 8KB receive buffer for efficient reads */
         .buffer_size_tx = 1024,
         .keep_alive_enable = true,
     };
@@ -365,7 +365,7 @@ static void ota_update_task(void *pvParameters)
     esp_https_ota_config_t ota_config = {
         .http_config = &config,
         .partial_http_download = true,
-        .max_http_request_size = 8 * 1024,  /* Smaller chunks for more progress updates */
+        .max_http_request_size = 64 * 1024,  /* 64KB chunks — balances speed with progress granularity */
     };
     
     esp_https_ota_handle_t ota_handle = NULL;
