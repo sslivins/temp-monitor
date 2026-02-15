@@ -90,7 +90,32 @@ jobs:
         with:
           tag_name: ${{ steps.version.outputs.tag }}
           name: Thermux ${{ steps.version.outputs.tag }}
+          body: |
+            ## Flashing Instructions
+            
+            ### For Brand New ESP32-POE Devices (Initial Flash)
+            
+            Download all three binary files and flash using esptool.py:
+            
+            ```bash
+            esptool.py --chip esp32 --port /dev/ttyUSB0 --baud 460800 write_flash \
+              0x1000 bootloader.bin \
+              0x8000 partition-table.bin \
+              0x20000 thermux.bin
+            ```
+            
+            Replace `/dev/ttyUSB0` with your serial port (COM3 on Windows, /dev/cu.usbserial-* on macOS).
+            
+            ### For OTA Updates
+            
+            If you already have Thermux running, you only need `thermux.bin`:
+            - Use the web interface at `http://thermux.local/ota`
+            - Or configure automatic updates from this release URL
+            
+            See [FLASHING.md](https://github.com/sslivins/thermux/blob/main/FLASHING.md) for detailed instructions.
           files: |
+            build/bootloader/bootloader.bin
+            build/partition_table/partition-table.bin
             build/thermux.bin
           generate_release_notes: true
         env:
