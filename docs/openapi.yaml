@@ -1193,7 +1193,7 @@ components:
           type: boolean
           description: Whether the last reading was valid
         friendly_name:
-          oneOf:
+          anyOf:
             - type: string
             - type: "null"
           description: User-assigned friendly name (null if not set)
