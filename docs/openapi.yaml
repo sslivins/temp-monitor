@@ -1193,9 +1193,9 @@ components:
           type: boolean
           description: Whether the last reading was valid
         friendly_name:
-          type:
-            - string
-            - "null"
+          oneOf:
+            - type: string
+            - type: "null"
           description: User-assigned friendly name (null if not set)
           example: "Living Room"
         total_reads:
