@@ -252,6 +252,7 @@ paths:
         Authenticate with username and password. On success, sets a session cookie
         that can be used for subsequent authenticated requests.
       operationId: login
+      security: []
       requestBody:
         required: true
         content:
@@ -288,6 +289,16 @@ paths:
                     description: Whether login was successful
               example:
                 success: true
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
 
   /api/auth/logout:
     post:
@@ -296,6 +307,7 @@ paths:
       summary: Logout
       description: Destroys the current session and clears the session cookie.
       operationId: logout
+      security: []
       responses:
         '200':
           description: Logout successful
@@ -316,6 +328,7 @@ paths:
       summary: Get auth status
       description: Check if authentication is enabled and if the current session is valid.
       operationId: getAuthStatus
+      security: []
       responses:
         '200':
           description: Authentication status
@@ -1180,8 +1193,9 @@ components:
           type: boolean
           description: Whether the last reading was valid
         friendly_name:
-          type: string
-          nullable: true
+          type:
+            - string
+            - "null"
           description: User-assigned friendly name (null if not set)
           example: "Living Room"
         total_reads:
