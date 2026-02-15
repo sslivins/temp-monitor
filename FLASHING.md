@@ -100,18 +100,11 @@ After flashing:
 
 ## OTA Updates (Existing Installation)
 
-Once Thermux is already running on your device, you can update using only the `thermux.bin` file.
+Once Thermux is already running on your device, you can update easily through the web interface. **No manual file downloads are needed** for automatic updates - the web interface handles everything for you.
 
-### Option 1: Web Interface (Manual Upload)
+### Option 1: Automatic Updates (Recommended)
 
-1. Download `thermux.bin` from the [latest release](https://github.com/sslivins/thermux/releases/latest)
-2. Navigate to `http://thermux.local/ota`
-3. Click "Choose File" and select `thermux.bin`
-4. Click "Upload & Flash"
-5. Wait for the upload and flash to complete (~30 seconds)
-6. The device will automatically reboot with the new firmware
-
-### Option 2: Automatic Updates (GitHub Releases)
+The easiest way to update is to let the web interface download and install updates automatically from GitHub releases.
 
 1. Go to `http://thermux.local/config`
 2. In the OTA section, set the **OTA URL** to:
@@ -122,7 +115,22 @@ Once Thermux is already running on your device, you can update using only the `t
 4. Go to `http://thermux.local/ota`
 5. Click "Check for Updates"
 6. If a newer version is available, click "Update Now"
-7. The device will download, flash, and reboot automatically
+7. **The device downloads the firmware automatically**, flashes it, and reboots - you don't need to download `thermux.bin` yourself
+
+> **Note**: This is the recommended method for most users. The web interface downloads the latest `thermux.bin` from GitHub releases automatically.
+
+### Option 2: Manual File Upload
+
+Use this option if you want to install a **specific version** or **older version** of the firmware.
+
+1. Download the desired `thermux.bin` from any [release](https://github.com/sslivins/thermux/releases)
+2. Navigate to `http://thermux.local/ota`
+3. Click "Choose File" and select the `thermux.bin` file you downloaded
+4. Click "Upload & Flash"
+5. Wait for the upload and flash to complete (~30 seconds)
+6. The device will automatically reboot with the selected firmware
+
+> **Use case**: Installing a specific version (e.g., rolling back to an older version or testing a pre-release)
 
 ### Option 3: Via Home Assistant
 

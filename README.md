@@ -49,7 +49,7 @@ Download the latest firmware from [GitHub Releases](https://github.com/sslivins/
 - `partition-table.bin`
 - `thermux.bin`
 
-**For OTA updates** on devices already running Thermux, you only need `thermux.bin`.
+**For OTA updates** on devices already running Thermux, use the web interface at `http://thermux.local/ota` - it downloads and installs updates automatically (no manual file download needed). You can also manually upload a specific `thermux.bin` version if desired.
 
 See [FLASHING.md](FLASHING.md) for detailed instructions.
 
@@ -138,17 +138,25 @@ rest_command:
 
 ## OTA Updates
 
-### Automatic (GitHub Releases)
+Once Thermux is running, you can update through the web interface without manually downloading files.
 
-1. Configure the OTA URL in web settings (e.g., `https://api.github.com/repos/user/repo/releases/latest`)
-2. Click "Check for Updates" on the OTA page
+### Automatic Updates (Recommended)
+
+The web interface can automatically download and install updates from GitHub releases:
+
+1. Configure the OTA URL in web settings: `https://api.github.com/repos/sslivins/thermux/releases/latest`
+2. Go to the OTA page and click "Check for Updates"
 3. If a newer version is available, click "Update Now"
+4. The device downloads, flashes, and reboots automatically - **no manual file download needed**
 
 ### Manual Upload
 
-1. Navigate to `/ota` page
-2. Select the `.bin` firmware file
-3. Click "Upload & Flash"
+To install a **specific version** or **older version**, use the manual upload feature:
+
+1. Download the desired `thermux.bin` from any [release](https://github.com/sslivins/thermux/releases)
+2. Navigate to `/ota` page
+3. Select the `.bin` firmware file
+4. Click "Upload & Flash"
 
 ## Security
 
