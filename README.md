@@ -38,14 +38,29 @@ A multi-sensor temperature monitoring system for ESP32-POE boards with Home Assi
 
 > **Note**: A 4.7kΩ pull-up resistor is required between DATA and VCC. For 10+ sensors, use 2.2kΩ or 1.5kΩ to ensure reliable bus communication (the ESP32's internal pull-up is too weak for 1-Wire).
 
-## Building
+## Installation
 
-### Prerequisites
+### Pre-built Firmware (Recommended)
+
+Download the latest firmware from [GitHub Releases](https://github.com/sslivins/thermux/releases/latest) and follow the [FLASHING.md](FLASHING.md) guide.
+
+**For brand new ESP32-POE devices**, you'll need all three files:
+- `bootloader.bin`
+- `partition-table.bin`
+- `thermux.bin`
+
+**For OTA updates** on devices already running Thermux, you only need `thermux.bin`.
+
+See [FLASHING.md](FLASHING.md) for detailed instructions.
+
+### Building from Source
+
+#### Prerequisites
 
 - [ESP-IDF v5.5.x](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/get-started/)
 - VS Code with ESP-IDF extension (recommended)
 
-### Build & Flash
+#### Build & Flash
 
 ```bash
 # Set target
